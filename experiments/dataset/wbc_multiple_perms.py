@@ -7,14 +7,14 @@ from dataclasses import dataclass
 from typing import Literal, Optional, Tuple
 
 import numpy as np
-import PIL
+from PIL import Image
 import torch
 from torch.utils.data import Dataset
 
 
 def process_img(path: pathlib.Path, size: Tuple[int, int]):
-    img = PIL.Image.open(path)
-    img = img.resize(size, resample=PIL.Image.BILINEAR)
+    img = Image.open(path)
+    img = img.resize(size, resample=Image.BILINEAR)
     img = img.convert("L")
     img = np.array(img)
     img = img.astype(np.float32)
@@ -22,8 +22,8 @@ def process_img(path: pathlib.Path, size: Tuple[int, int]):
 
 
 def process_seg(path: pathlib.Path, size: Tuple[int, int]):
-    seg = PIL.Image.open(path)
-    seg = seg.resize(size, resample=PIL.Image.NEAREST)
+    seg = Image.open(path)
+    seg = seg.resize(size, resample=Image.NEAREST)
     seg = np.array(seg)
     seg = np.stack([seg == 0, seg == 128, seg == 255])
     seg = seg.astype(np.float32)
@@ -62,15 +62,18 @@ class WBCDataset(Dataset):
     support_frac: float = 0.7
     seed: int = 42
     n_orderings: int = 30
+    testing_data_size: int = None
 
     def __post_init__(self):
         root = require_download_wbc()
         path = root / {"JTSC": "Dataset 1", "CV": "Dataset 2"}[self.dataset]
         T = torch.from_numpy
         self._data = [(T(x)[None], T(y)) for x, y in load_folder(path)]
+        if self.testing_data_size:
+            self._data = self._data[:self.testing_data_size]
         if self.label is not None:
             self._ilabel = {"cytoplasm": 1, "nucleus": 2, "background": 0}[self.label]
-        self.orderings = self.get_data_orderings()
+        self.orderings = self._get_data_orderings()
 
     def _split_indexes(self):
         rng = np.random.default_rng(self.seed)
@@ -79,7 +82,7 @@ class WBCDataset(Dataset):
         i = int(np.floor(self.support_frac * N))
         return {"support": p[:i], "test": p[i:]}[self.split]
     
-    def get_data_orderings(self):
+    def _get_data_orderings(self):
         """
         Generate multiple shuffles of the support split,
         keeping the test split fixed.
