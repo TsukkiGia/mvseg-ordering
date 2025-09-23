@@ -1,6 +1,7 @@
 import os
 os.environ['NEURITE_BACKEND'] = 'pytorch'
 
+# add MultiverSeg, UniverSeg and ScribblePrompt dependencies
 import sys
 from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -18,14 +19,16 @@ from typing import Any
 import torch
 from dataset.wbc_multiple_perms import WBCDataset
 from multiverseg.models.sp_mvs import MultiverSeg
+import yaml
+from pylot.experiment.util import eval_config
 
 
 class MVSegOrderingExperiment():
-    def __init__(self, dataset: WBCDataset, prompt_generator: Any):
+    def __init__(self, dataset: WBCDataset, prompt_generator: Any, prompt_iterations: int):
         self.dataset = dataset
         self.prompt_generator = prompt_generator
         self.model = MultiverSeg(version="v0")
-        print(os.getcwd())
+        self.prompt_iterations = prompt_iterations
 
 
     def run_permutations(self):
@@ -46,15 +49,25 @@ class MVSegOrderingExperiment():
             # Image and Label: 1 x H x W
             image = support_images[index]
             label = support_labels[index]
-            
-            # Predict current image with current context
-            yhat = self.model.predict(image[None], context_images, context_labels, return_logits=False).to('cpu')
-            
-            # visualize result
-            fig, _ = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0.5], width=10, 
-               titles=['Image', 'Label', 'MultiverSeg'])
-            save_path = results_dir / f"{ordering_index}_prediction_0.png"
-            fig.savefig(save_path)
+            for iteration in range(self.prompt_iterations):
+                # if we are on the first iteration, then we need to get initial prompts
+                if iteration == 0:
+                    prompts = self.prompt_generator(image[None], label[None])
+                else:
+                    prompts = self.prompt_generator.subsequent_prompt(
+                            mask_pred=yhat, # shape: (1, 1, H, W)
+                            prev_input=prompts,
+                            new_prompt=True
+                    )
+                # Predict current image with current context
+                yhat = self.model.predict(image[None], context_images, context_labels, return_logits=False).to('cpu')
+                
+                # visualize result
+                fig, _ = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0.5], width=10, 
+                titles=['Image', 'Label', 'MultiverSeg'])
+                save_path = results_dir / f"{ordering_index}_prediction_0.png"
+                fig.savefig(save_path)
+                break
             break
 
             
@@ -62,7 +75,11 @@ class MVSegOrderingExperiment():
 if __name__ == "__main__":
     train_split = 0.6
     d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=10)
-    d_test = WBCDataset('JTSC', split='test', label='nucleus', support_frac=train_split, testing_data_size=10)  
-    experiment = MVSegOrderingExperiment(d_support, None)
+    d_test = WBCDataset('JTSC', split='test', label='nucleus', support_frac=train_split, testing_data_size=10)
+    with open(script_dir / "prompt_generator_configs/click_prompt_generator.yml", "r") as f:
+        cfg = yaml.safe_load(f)  
+    prompt_generator =  eval_config(cfg)['click_generator']
+    print(prompt_generator)
+    experiment = MVSegOrderingExperiment(d_support, prompt_generator, 20)
     experiment.run_permutations()
         
