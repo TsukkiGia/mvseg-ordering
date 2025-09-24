@@ -24,11 +24,12 @@ from pylot.experiment.util import eval_config
 
 
 class MVSegOrderingExperiment():
-    def __init__(self, dataset: WBCDataset, prompt_generator: Any, prompt_iterations: int):
+    def __init__(self, dataset: WBCDataset, prompt_generator: Any, prompt_iterations: int, commit_ground_truth: bool):
         self.dataset = dataset
         self.prompt_generator = prompt_generator
         self.model = MultiverSeg(version="v0")
         self.prompt_iterations = prompt_iterations
+        self.commit_ground_truth = commit_ground_truth
 
 
     def run_permutations(self):
@@ -46,29 +47,31 @@ class MVSegOrderingExperiment():
         context_labels = None
         for index in range(support_images.size(0)):
             
-            # Image and Label: 1 x H x W
+            # Image and Label: C x H x W
             image = support_images[index]
             label = support_labels[index]
+
+            # For each image, we are doing max 20 iterations to get to 90 Dice
             for iteration in range(self.prompt_iterations):
-                # if we are on the first iteration, then we need to get initial prompts
                 if iteration == 0:
                     prompts = self.prompt_generator(image[None], label[None])
                 else:
                     prompts = self.prompt_generator.subsequent_prompt(
-                            mask_pred=yhat, # shape: (1, 1, H, W)
+                            mask_pred=yhat, # shape: (1, C, H, W)
                             prev_input=prompts,
                             new_prompt=True
                     )
+                annotations = {k:prompts.get(k) for k in ['point_coords', 'point_labels', 'mask_input', 'scribbles', 'box']}
                 # Predict current image with current context
-                yhat = self.model.predict(image[None], context_images, context_labels, return_logits=False).to('cpu')
-                
+                yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=False).to('cpu')
                 # visualize result
                 fig, _ = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0.5], width=10, 
                 titles=['Image', 'Label', 'MultiverSeg'])
                 save_path = results_dir / f"{ordering_index}_prediction_0.png"
                 fig.savefig(save_path)
-                break
+            
             break
+        
 
             
 
@@ -80,6 +83,6 @@ if __name__ == "__main__":
         cfg = yaml.safe_load(f)  
     prompt_generator =  eval_config(cfg)['click_generator']
     print(prompt_generator)
-    experiment = MVSegOrderingExperiment(d_support, prompt_generator, 20)
+    experiment = MVSegOrderingExperiment(d_support, prompt_generator, 20, False)
     experiment.run_permutations()
         
