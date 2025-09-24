@@ -68,14 +68,32 @@ class MVSegOrderingExperiment():
                 
                 # visualize result
                 fig, _ = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0.5], width=10, 
-                titles=['Image', 'Label', 'MultiverSeg'])
-                save_path = results_dir / f"{ordering_index}_prediction_{iteration}.png"
+                titles=['Image', 'Label', 'Prediction'])
+                save_path = results_dir / f"Perm_{ordering_index}_image_{index}_prediction_{iteration}.png"
                 fig.savefig(save_path)
                 score = dice_score(yhat > 0.5, label[None, ...])
                 if score >= 0.9:
                     break
-            
-            break
+
+            # after all the iterations, update the context set
+            binary_yhat = yhat[None, ...] > 0.5
+            if context_images is None:
+                # Image is C x H x W
+                # We want 1 x n x C x H x W for context
+                context_images = image[None, None, ...]
+                # Label is C x H x W
+                # yhat is n x C x H x W
+                # We want 1 x n x C x H x W for context
+                if self.commit_ground_truth:
+                    context_labels = label[None, None, ...]
+                else:
+                    context_labels = binary_yhat
+            else:
+                context_images = torch.cat([context_images, image[None, None, ...]], dim=1)
+                if self.commit_ground_truth:
+                    context_labels = torch.cat([context_labels, label[None, None, ...]], dim=1)
+                else:
+                    context_labels = torch.cat([context_labels, binary_yhat], dim=1)
         
 
             
@@ -88,6 +106,6 @@ if __name__ == "__main__":
         cfg = yaml.safe_load(f)  
     prompt_generator =  eval_config(cfg)['click_generator']
     print(prompt_generator)
-    experiment = MVSegOrderingExperiment(d_support, prompt_generator, 20, False)
+    experiment = MVSegOrderingExperiment(d_support, prompt_generator, 5, False)
     experiment.run_permutations()
         
