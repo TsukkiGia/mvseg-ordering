@@ -21,6 +21,7 @@ from dataset.wbc_multiple_perms import WBCDataset
 from multiverseg.models.sp_mvs import MultiverSeg
 import yaml
 from pylot.experiment.util import eval_config
+from score.dice_score import dice_score
 
 
 class MVSegOrderingExperiment():
@@ -61,14 +62,18 @@ class MVSegOrderingExperiment():
                             prev_input=prompts,
                             new_prompt=True
                     )
+                
                 annotations = {k:prompts.get(k) for k in ['point_coords', 'point_labels', 'mask_input', 'scribbles', 'box']}
-                # Predict current image with current context
                 yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=False).to('cpu')
+                
                 # visualize result
                 fig, _ = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0.5], width=10, 
                 titles=['Image', 'Label', 'MultiverSeg'])
-                save_path = results_dir / f"{ordering_index}_prediction_0.png"
+                save_path = results_dir / f"{ordering_index}_prediction_{iteration}.png"
                 fig.savefig(save_path)
+                score = dice_score(yhat > 0.5, label[None, ...])
+                if score >= 0.9:
+                    break
             
             break
         
