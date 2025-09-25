@@ -78,20 +78,20 @@ class MVSegOrderingExperiment():
                     )
                 
                 annotations = {k:prompts.get(k) for k in ['point_coords', 'point_labels', 'mask_input', 'scribbles', 'box']}
-                yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=False).to('cpu')
+                yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=True).to('cpu')
                 
                 # visualize result
-                fig, _ = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0.5], width=10, 
+                fig, _ = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0], width=10, 
                 titles=['Image', 'Label', 'Prediction'])
                 save_path = results_dir / f"Perm_{ordering_index}_image_{index}_prediction_{iteration}.png"
                 fig.savefig(save_path)
                 plt.close()
-                score = dice_score(yhat > 0.5, label[None, ...])
+                score = dice_score((yhat > 0).float(), label[None, ...])
                 if score >= 0.9:
                     break
 
             # after all the iterations, update the context set
-            binary_yhat = yhat[None, ...] > 0.5
+            binary_yhat = (yhat > 0).float()[None, ...]
             if context_images is None:
                 # Image is C x H x W
                 # We want 1 x n x C x H x W for context
@@ -116,9 +116,7 @@ class MVSegOrderingExperiment():
 if __name__ == "__main__":
     train_split = 0.6
     d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=10)
-    print("support",d_support.get_data_indices())
     d_test = WBCDataset('JTSC', split='test', label='nucleus', support_frac=train_split, testing_data_size=10)
-    print("test", d_test.get_data_indices())
     with open(script_dir / "prompt_generator_configs/click_prompt_generator.yml", "r") as f:
         cfg = yaml.safe_load(f)  
     prompt_generator =  eval_config(cfg)['click_generator']

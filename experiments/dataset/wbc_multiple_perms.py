@@ -73,7 +73,6 @@ class WBCDataset(Dataset):
         if self.label is not None:
             self._ilabel = {"cytoplasm": 1, "nucleus": 2, "background": 0}[self.label]
         self._idxs = self._split_indexes()
-        print("inside " + self.split, self._idxs)
 
     def _split_indexes(self):
         rng = np.random.default_rng(self.seed)
