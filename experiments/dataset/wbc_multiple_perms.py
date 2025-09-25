@@ -7,14 +7,14 @@ from dataclasses import dataclass
 from typing import Literal, Optional, Tuple
 
 import numpy as np
-from PIL import Image
+import PIL
 import torch
 from torch.utils.data import Dataset
 
 
 def process_img(path: pathlib.Path, size: Tuple[int, int]):
-    img = Image.open(path)
-    img = img.resize(size, resample=Image.BILINEAR)
+    img = PIL.Image.open(path)
+    img = img.resize(size, resample=PIL.Image.BILINEAR)
     img = img.convert("L")
     img = np.array(img)
     img = img.astype(np.float32)
@@ -22,8 +22,8 @@ def process_img(path: pathlib.Path, size: Tuple[int, int]):
 
 
 def process_seg(path: pathlib.Path, size: Tuple[int, int]):
-    seg = Image.open(path)
-    seg = seg.resize(size, resample=Image.NEAREST)
+    seg = PIL.Image.open(path)
+    seg = seg.resize(size, resample=PIL.Image.NEAREST)
     seg = np.array(seg)
     seg = np.stack([seg == 0, seg == 128, seg == 255])
     seg = seg.astype(np.float32)
@@ -61,7 +61,6 @@ class WBCDataset(Dataset):
     label: Optional[Literal["nucleus", "cytoplasm", "background"]] = None
     support_frac: float = 0.7
     seed: int = 42
-    n_orderings: int = 30
     testing_data_size: int = None
 
     def __post_init__(self):
@@ -73,37 +72,26 @@ class WBCDataset(Dataset):
             self._data = self._data[:self.testing_data_size]
         if self.label is not None:
             self._ilabel = {"cytoplasm": 1, "nucleus": 2, "background": 0}[self.label]
-        self.orderings = self._get_data_orderings()
+        self._idxs = self._split_indexes()
+        print("inside " + self.split, self._idxs)
 
     def _split_indexes(self):
         rng = np.random.default_rng(self.seed)
         N = len(self._data)
+        if self.testing_data_size:
+            N = self.testing_data_size
         p = rng.permutation(N)
         i = int(np.floor(self.support_frac * N))
         return {"support": p[:i], "test": p[i:]}[self.split]
+
+    def __len__(self):
+        return len(self._idxs)
+
+    def __getitem__(self, idx):
+        img, seg = self._data[idx]
+        if self.label is not None:
+            seg = seg[self._ilabel][None]
+        return img, seg
     
-    def _get_data_orderings(self):
-        """
-        Generate multiple shuffles of the support split,
-        keeping the test split fixed.
-        """
-        # Always create the same support/test division
-        base_split = self._split_indexes()
-        if self.split != "support":
-            return [base_split]
-        
-        rng = np.random.default_rng(self.seed)
-        orderings = [rng.permutation(base_split) for _ in range(self.n_orderings)]
-        return orderings
-    
-    def get_data_from_ordering(self, perm_number):
-        images = []
-        segmentations = []
-        ordering = self.orderings[perm_number]
-        for index in ordering:
-            img, seg = self._data[index]
-            if self.label is not None:
-                seg = seg[self._ilabel][None]
-            images.append(img)
-            segmentations.append(seg)     
-        return images, segmentations
+    def get_data_indices(self):
+        return self._idxs

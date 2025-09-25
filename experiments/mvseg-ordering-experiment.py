@@ -22,23 +22,37 @@ from multiverseg.models.sp_mvs import MultiverSeg
 import yaml
 from pylot.experiment.util import eval_config
 from score.dice_score import dice_score
+import numpy as np
+import matplotlib.pyplot as plt
 
 
 class MVSegOrderingExperiment():
-    def __init__(self, dataset: WBCDataset, prompt_generator: Any, prompt_iterations: int, commit_ground_truth: bool):
+    def __init__(self, dataset: WBCDataset, 
+                 prompt_generator: Any, 
+                 prompt_iterations: int, 
+                 commit_ground_truth: bool,
+                 permutations: int,
+                 seed: int = 23):
         self.dataset = dataset
         self.prompt_generator = prompt_generator
         self.model = MultiverSeg(version="v0")
         self.prompt_iterations = prompt_iterations
         self.commit_ground_truth = commit_ground_truth
+        self.permutations = permutations
+        self.seed = seed
+        np.random.seed(seed)
 
 
     def run_permutations(self):
-        for ordering_index in range(len(self.dataset.orderings)):
-            support_images, support_labels = self.dataset.get_data_from_ordering(ordering_index)
+        base_indices = self.dataset.get_data_indices()
+        for permutation_index in range(self.permutations):
+            rng = np.random.default_rng(permutation_index)
+            shuffled_indices = rng.permutation(base_indices).tolist()
+            shuffled_data = [self.dataset[index] for index in shuffled_indices]
+            support_images, support_labels = zip(*shuffled_data)
             support_images = torch.stack(support_images).to("cpu")
             support_labels = torch.stack(support_labels).to("cpu")
-            self.run_seq_multiverseg(support_images, support_labels, ordering_index)
+            self.run_seq_multiverseg(support_images, support_labels, permutation_index)
             break
     
     def run_seq_multiverseg(self, support_images, support_labels, ordering_index):
@@ -71,6 +85,7 @@ class MVSegOrderingExperiment():
                 titles=['Image', 'Label', 'Prediction'])
                 save_path = results_dir / f"Perm_{ordering_index}_image_{index}_prediction_{iteration}.png"
                 fig.savefig(save_path)
+                plt.close()
                 score = dice_score(yhat > 0.5, label[None, ...])
                 if score >= 0.9:
                     break
@@ -101,11 +116,13 @@ class MVSegOrderingExperiment():
 if __name__ == "__main__":
     train_split = 0.6
     d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=10)
+    print("support",d_support.get_data_indices())
     d_test = WBCDataset('JTSC', split='test', label='nucleus', support_frac=train_split, testing_data_size=10)
+    print("test", d_test.get_data_indices())
     with open(script_dir / "prompt_generator_configs/click_prompt_generator.yml", "r") as f:
         cfg = yaml.safe_load(f)  
     prompt_generator =  eval_config(cfg)['click_generator']
     print(prompt_generator)
-    experiment = MVSegOrderingExperiment(d_support, prompt_generator, 5, False)
+    experiment = MVSegOrderingExperiment(d_support, prompt_generator, 5, False, 10)
     experiment.run_permutations()
         
