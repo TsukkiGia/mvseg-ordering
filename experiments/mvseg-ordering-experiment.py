@@ -67,9 +67,8 @@ class MVSegOrderingExperiment():
             df = self.run_seq_multiverseg(support_images, support_labels, permutation_index, seed_folder_dir)
             df.to_csv(seed_folder_dir / "results.csv", index=False)
             dfs.append(df)
-            break
         all_results = pd.concat(dfs, ignore_index=True)
-        all_results.to_csv(results_dir / "all_permutations.csv", index=False)
+        all_results.to_csv(self.experiment_folder / "all_permutations.csv", index=False)
         return all_results
     
     def run_seq_multiverseg(self, support_images, support_labels, ordering_index, seed_folder_dir):
