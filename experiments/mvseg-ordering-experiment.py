@@ -57,7 +57,7 @@ class MVSegOrderingExperiment():
         for permutation_index in range(self.permutations):
             rng = np.random.default_rng(permutation_index)
             shuffled_indices = rng.permutation(base_indices).tolist()
-            shuffled_data = [self.dataset[index] for index in shuffled_indices]
+            shuffled_data = [self.dataset.get_item_by_data_index(index) for index in shuffled_indices]
             support_images, support_labels = zip(*shuffled_data)
             support_images = torch.stack(support_images).to("cpu")
             support_labels = torch.stack(support_labels).to("cpu")

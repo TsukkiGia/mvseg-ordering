@@ -77,8 +77,6 @@ class WBCDataset(Dataset):
     def _split_indexes(self):
         rng = np.random.default_rng(self.seed)
         N = len(self._data)
-        if self.testing_data_size:
-            N = self.testing_data_size
         p = rng.permutation(N)
         i = int(np.floor(self.support_frac * N))
         return {"support": p[:i], "test": p[i:]}[self.split]
@@ -87,7 +85,14 @@ class WBCDataset(Dataset):
         return len(self._idxs)
 
     def __getitem__(self, idx):
-        img, seg = self._data[idx]
+        img, seg = self._data[self._idxs[idx]]
+        if self.label is not None:
+            seg = seg[self._ilabel][None]
+        return img, seg
+    
+    def get_item_by_data_index(self, data_idx: int):
+        """Return an item using the underlying dataset index."""
+        img, seg = self._data[data_idx]
         if self.label is not None:
             seg = seg[self._ilabel][None]
         return img, seg
