@@ -54,6 +54,7 @@ class MVSegOrderingExperiment():
 
     def run_permutations(self):
         base_indices = self.dataset.get_data_indices()
+        dfs = []
         for permutation_index in range(self.permutations):
             rng = np.random.default_rng(permutation_index)
             shuffled_indices = rng.permutation(base_indices).tolist()
@@ -65,7 +66,11 @@ class MVSegOrderingExperiment():
             seed_folder_dir.mkdir(exist_ok=True)
             df = self.run_seq_multiverseg(support_images, support_labels, permutation_index, seed_folder_dir)
             df.to_csv(seed_folder_dir / "results.csv", index=False)
+            dfs.append(df)
             break
+        all_results = pd.concat(dfs, ignore_index=True)
+        all_results.to_csv(results_dir / "all_permutations.csv", index=False)
+        return all_results
     
     def run_seq_multiverseg(self, support_images, support_labels, ordering_index, seed_folder_dir):
         # N x C x H x W for support images and labels
@@ -169,4 +174,14 @@ if __name__ == "__main__":
         dice_cutoff=0.9, 
         interaction_protocol=str(experiment_number))
     experiment.run_permutations()
+
+    # experiment_number = 1
+    # experiment = MVSegOrderingExperiment(
+    #     dataset=d_support, 
+    #     prompt_generator=prompt_generator, 
+    #     prompt_iterations=5, 
+    #     commit_ground_truth=True, 
+    #     permutations=10, 
+    #     dice_cutoff=0.9, 
+    #     interaction_protocol=str(experiment_number))
         
