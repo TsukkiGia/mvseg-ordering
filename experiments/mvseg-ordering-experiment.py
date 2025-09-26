@@ -24,6 +24,7 @@ from pylot.experiment.util import eval_config
 from score.dice_score import dice_score
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
 
 class MVSegOrderingExperiment():
@@ -32,14 +33,19 @@ class MVSegOrderingExperiment():
                  prompt_iterations: int, 
                  commit_ground_truth: bool,
                  permutations: int,
+                 dice_cutoff: float,
+                 interaction_protocol: str,
                  seed: int = 23):
+        
         self.dataset = dataset
         self.prompt_generator = prompt_generator
         self.model = MultiverSeg(version="v0")
         self.prompt_iterations = prompt_iterations
         self.commit_ground_truth = commit_ground_truth
         self.permutations = permutations
+        self.dice_cutoff = dice_cutoff
         self.seed = seed
+        self.interaction_protocol = interaction_protocol
         np.random.seed(seed)
 
 
@@ -52,16 +58,20 @@ class MVSegOrderingExperiment():
             support_images, support_labels = zip(*shuffled_data)
             support_images = torch.stack(support_images).to("cpu")
             support_labels = torch.stack(support_labels).to("cpu")
-            self.run_seq_multiverseg(support_images, support_labels, permutation_index)
+            seed_folder_dir = results_dir / f"Perm_Seed_{permutation_index}"
+            seed_folder_dir.mkdir(exist_ok=True)
+            df = self.run_seq_multiverseg(support_images, support_labels, permutation_index, seed_folder_dir)
+            df.to_csv(seed_folder_dir / "results.csv", index=False)
             break
     
-    def run_seq_multiverseg(self, support_images, support_labels, ordering_index):
+    def run_seq_multiverseg(self, support_images, support_labels, ordering_index, seed_folder_dir):
         # N x 1 x H x W for support images and labels
+        rows = []
         assert(support_images.size(0) == support_labels.size(0))
         context_images = None
         context_labels = None
+
         for index in range(support_images.size(0)):
-            
             # Image and Label: C x H x W
             image = support_images[index]
             label = support_labels[index]
@@ -83,26 +93,49 @@ class MVSegOrderingExperiment():
                 # visualize result
                 fig, _ = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0], width=10, 
                 titles=['Image', 'Label', 'Prediction'])
-                save_path = results_dir / f"Perm_{ordering_index}_image_{index}_prediction_{iteration}.png"
-                fig.savefig(save_path)
+                fig.savefig(seed_folder_dir / f"Image_{index}_prediction_{iteration}.png")
                 plt.close()
+
+                # get score for yhat
                 score = dice_score((yhat > 0).float(), label[None, ...])
-                if score >= 0.9:
+
+                # get interaction stats
+                if prompts.get('point_labels', None) is not None:
+                    pos_clicks = prompts.get('point_labels').sum().item()
+                    neg_clicks = prompts.get('point_labels').shape[1] - pos_clicks
+                else:
+                    pos_clicks = neg_clicks = 0
+
+                rows.append({
+                    "experiment_seed": self.seed,
+                    "permutation_seed": ordering_index,
+                    "image_index": index,
+                    "iteration": iteration,
+                    "commit_ground_truth": self.commit_ground_truth,
+                    "dice_cutoff": self.dice_cutoff,
+                    "pos_clicks": pos_clicks,
+                    "neg_clicks": neg_clicks,
+                    "score": float(score.item())
+                })
+                if score >= self.dice_cutoff:
                     break
 
             # after all the iterations, update the context set
             binary_yhat = (yhat > 0).float() # B x C x H x W
 
+            # B x C x H x W
             mask_to_commit = (label[None, ...] if self.commit_ground_truth else binary_yhat)
-
+            
+            #TODO: Think about Batch Axis
             if context_images is None:
-                # Add a new "context axis" so final shape is (1, n, 1, H, W)
+                # Add a new "context axis" so final shape is (B, n, 1, H, W)
                 context_images = image[None, None, ...]        # (1, 1, 1, H, W)
                 context_labels = mask_to_commit[None, ...]  # (1, 1, 1, H, W)
             else:
                 # Append along the context dimension (dim=1)
                 context_images = torch.cat([context_images, image[None, None, ...]], dim=1)
                 context_labels = torch.cat([context_labels, mask_to_commit[None, ...]], dim=1)
+        return pd.DataFrame.from_records(rows)
         
 
             
@@ -112,9 +145,14 @@ if __name__ == "__main__":
     d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=10)
     d_test = WBCDataset('JTSC', split='test', label='nucleus', support_frac=train_split, testing_data_size=10)
     with open(script_dir / "prompt_generator_configs/click_prompt_generator.yml", "r") as f:
-        cfg = yaml.safe_load(f)  
+        cfg = yaml.safe_load(f)
+    prompt_generator_config = cfg['click_generator']
     prompt_generator =  eval_config(cfg)['click_generator']
-    print(prompt_generator)
-    experiment = MVSegOrderingExperiment(d_support, prompt_generator, 5, False, 10)
+    protocol_desc = (
+        f"{prompt_generator_config.get('init_pos_click', 0)} init pos, "
+        f"{prompt_generator_config.get('init_neg_click', 0)} init neg, "
+        f"{prompt_generator_config.get('correction_clicks', 0)} corrections"
+    )
+    experiment = MVSegOrderingExperiment(d_support, prompt_generator, 5, False, 10, 0.9, "One Init Pos Click, and one correction click on biggest components")
     experiment.run_permutations()
         
