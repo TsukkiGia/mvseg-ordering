@@ -72,7 +72,7 @@ class MVSegOrderingExperiment():
                     prompts = self.prompt_generator(image[None], label[None])
                 else:
                     prompts = self.prompt_generator.subsequent_prompt(
-                            mask_pred=yhat, # shape: (1, C, H, W)
+                            mask_pred=yhat, # shape: (B, C, H, W)
                             prev_input=prompts,
                             new_prompt=True
                     )
@@ -91,24 +91,18 @@ class MVSegOrderingExperiment():
                     break
 
             # after all the iterations, update the context set
-            binary_yhat = (yhat > 0).float()[None, ...]
+            binary_yhat = (yhat > 0).float() # B x C x H x W
+
+            mask_to_commit = (label[None, ...] if self.commit_ground_truth else binary_yhat)
+
             if context_images is None:
-                # Image is C x H x W
-                # We want 1 x n x C x H x W for context
-                context_images = image[None, None, ...]
-                # Label is C x H x W
-                # yhat is n x C x H x W
-                # We want 1 x n x C x H x W for context
-                if self.commit_ground_truth:
-                    context_labels = label[None, None, ...]
-                else:
-                    context_labels = binary_yhat
+                # Add a new "context axis" so final shape is (1, n, 1, H, W)
+                context_images = image[None, None, ...]        # (1, 1, 1, H, W)
+                context_labels = mask_to_commit[None, ...]  # (1, 1, 1, H, W)
             else:
+                # Append along the context dimension (dim=1)
                 context_images = torch.cat([context_images, image[None, None, ...]], dim=1)
-                if self.commit_ground_truth:
-                    context_labels = torch.cat([context_labels, label[None, None, ...]], dim=1)
-                else:
-                    context_labels = torch.cat([context_labels, binary_yhat], dim=1)
+                context_labels = torch.cat([context_labels, mask_to_commit[None, ...]], dim=1)
         
 
             
