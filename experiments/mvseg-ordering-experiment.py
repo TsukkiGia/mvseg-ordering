@@ -54,7 +54,8 @@ class MVSegOrderingExperiment():
 
     def run_permutations(self):
         base_indices = self.dataset.get_data_indices()
-        dfs = []
+        all_iterations = []
+        all_images = []
         for permutation_index in range(self.permutations):
             rng = np.random.default_rng(permutation_index)
             shuffled_indices = rng.permutation(base_indices).tolist()
@@ -64,17 +65,21 @@ class MVSegOrderingExperiment():
             support_labels = torch.stack(support_labels).to("cpu")
             seed_folder_dir =  self.experiment_folder / f"Perm_Seed_{permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
-            df = self.run_seq_multiverseg(support_images, support_labels, permutation_index, seed_folder_dir)
-            df.to_csv(seed_folder_dir / "results.csv", index=False)
-            dfs.append(df)
-        all_results = pd.concat(dfs, ignore_index=True)
-        all_results.to_csv(self.experiment_folder / "all_permutations.csv", index=False)
-        return all_results
+            per_iteration_records, per_image_records = self.run_seq_multiverseg(support_images, support_labels, permutation_index, seed_folder_dir)
+            per_iteration_records.to_csv(seed_folder_dir / "per_iteration_records.csv", index=False)
+            per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
+            all_iterations.append(per_iteration_records)
+            all_images.append(per_image_records)
+        all_iteration_results = pd.concat(all_iterations, ignore_index=True)
+        all_image_results = pd.concat(all_images, ignore_index=True)
+        all_iteration_results.to_csv(self.experiment_folder / "all_iteration_results.csv", index=False)
+        all_image_results.to_csv(self.experiment_folder / "all_image_results.csv", index=False)
     
     def run_seq_multiverseg(self, support_images, support_labels, ordering_index, seed_folder_dir):
         # N x C x H x W for support images and labels
         # C = 1
         rows = []
+        image_summary_rows = []
         assert(support_images.size(0) == support_labels.size(0))
         context_images = None
         context_labels = None
@@ -108,6 +113,8 @@ class MVSegOrderingExperiment():
 
                 # get score for yhat
                 score = dice_score((yhat > 0).float(), label[None, ...])
+                if iteration == 0:
+                    initial_dice = float(score.item())
 
                 # get interaction stats
                 if prompts.get('point_labels', None) is not None:
@@ -125,10 +132,28 @@ class MVSegOrderingExperiment():
                     "dice_cutoff": self.dice_cutoff,
                     "pos_clicks": pos_clicks,
                     "neg_clicks": neg_clicks,
-                    "score": float(score.item())
+                    "score": float(score.item()),
+                    "prompt_limit": self.prompt_iterations,
                 })
                 if score >= self.dice_cutoff:
                     break
+
+            final_dice = float(score.item())
+            iterations_used = iteration + 1
+            image_summary_rows.append({
+                "experiment_seed": self.seed,
+                "permutation_seed": ordering_index,
+                "image_index": index,
+                "initial_dice": initial_dice,
+                "final_dice": final_dice,
+                "iterations_used": iterations_used,
+                "reached_cutoff": final_dice >= self.dice_cutoff,
+                "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
+                "experiment_number": int(self.interaction_protocol.split("_")[0]),
+                "protocol": self.interaction_protocol,
+                "dice_cutoff": self.dice_cutoff,
+                "prompt_limit": self.prompt_iterations
+            })
 
             # after all the iterations, update the context set
             binary_yhat = (yhat > 0).float() # B x C x H x W
@@ -145,7 +170,7 @@ class MVSegOrderingExperiment():
                 # Append along the context dimension (dim=1)
                 context_images = torch.cat([context_images, image[None, None, ...]], dim=1)
                 context_labels = torch.cat([context_labels, mask_to_commit[None, ...]], dim=1)
-        return pd.DataFrame.from_records(rows)
+        return pd.DataFrame.from_records(rows), pd.DataFrame.from_records(image_summary_rows)
         
 
             
@@ -169,9 +194,9 @@ if __name__ == "__main__":
         prompt_generator=prompt_generator, 
         prompt_iterations=5, 
         commit_ground_truth=False, 
-        permutations=10, 
+        permutations=1, 
         dice_cutoff=0.9, 
-        interaction_protocol=str(experiment_number))
+        interaction_protocol=f"{experiment_number}_{protocol_desc}")
     experiment.run_permutations()
 
     # experiment_number = 1
