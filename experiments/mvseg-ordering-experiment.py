@@ -25,6 +25,7 @@ from score.dice_score import dice_score
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+from scribbleprompt.analysis.plot import show_points
 
 
 class MVSegOrderingExperiment():
@@ -46,6 +47,8 @@ class MVSegOrderingExperiment():
         self.dice_cutoff = dice_cutoff
         self.seed = seed
         self.interaction_protocol = interaction_protocol
+        self.experiment_folder = results_dir / f"{interaction_protocol}"
+        self.experiment_folder.mkdir(exist_ok=True)
         np.random.seed(seed)
 
 
@@ -58,14 +61,15 @@ class MVSegOrderingExperiment():
             support_images, support_labels = zip(*shuffled_data)
             support_images = torch.stack(support_images).to("cpu")
             support_labels = torch.stack(support_labels).to("cpu")
-            seed_folder_dir = results_dir / f"Perm_Seed_{permutation_index}"
+            seed_folder_dir =  self.experiment_folder / f"Perm_Seed_{permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
             df = self.run_seq_multiverseg(support_images, support_labels, permutation_index, seed_folder_dir)
             df.to_csv(seed_folder_dir / "results.csv", index=False)
             break
     
     def run_seq_multiverseg(self, support_images, support_labels, ordering_index, seed_folder_dir):
-        # N x 1 x H x W for support images and labels
+        # N x C x H x W for support images and labels
+        # C = 1
         rows = []
         assert(support_images.size(0) == support_labels.size(0))
         context_images = None
@@ -91,8 +95,10 @@ class MVSegOrderingExperiment():
                 yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=True).to('cpu')
                 
                 # visualize result
-                fig, _ = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0], width=10, 
+                fig, ax = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0], width=10, 
                 titles=['Image', 'Label', 'Prediction'])
+                if "point_coords" in annotations and "point_labels" in annotations:
+                    show_points(annotations['point_coords'].cpu(), annotations['point_labels'].cpu(), ax=ax[0])
                 fig.savefig(seed_folder_dir / f"Image_{index}_prediction_{iteration}.png")
                 plt.close()
 
@@ -153,6 +159,14 @@ if __name__ == "__main__":
         f"{prompt_generator_config.get('init_neg_click', 0)} init neg, "
         f"{prompt_generator_config.get('correction_clicks', 0)} corrections"
     )
-    experiment = MVSegOrderingExperiment(d_support, prompt_generator, 5, False, 10, 0.9, "One Init Pos Click, and one correction click on biggest components")
+    experiment_number = 0
+    experiment = MVSegOrderingExperiment(
+        dataset=d_support, 
+        prompt_generator=prompt_generator, 
+        prompt_iterations=5, 
+        commit_ground_truth=False, 
+        permutations=10, 
+        dice_cutoff=0.9, 
+        interaction_protocol=str(experiment_number))
     experiment.run_permutations()
         
