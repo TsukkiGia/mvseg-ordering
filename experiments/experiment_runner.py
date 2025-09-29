@@ -1,18 +1,16 @@
 """Utility helpers to run MVSeg ordering experiments and plot their results."""
-from __future__ import annotations
-
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+from dataclasses import dataclass
 import yaml
 
-from analysis.results_plot import (
+from .analysis.results_plot import (
     plot_image_index_vs_initial_dice,
     plot_image_index_vs_iterations_used,
 )
-from dataset.wbc_multiple_perms import WBCDataset
-from mvseg_ordering_experiment import MVSegOrderingExperiment
+from .dataset.wbc_multiple_perms import WBCDataset
+from .mvseg_ordering_experiment import MVSegOrderingExperiment
 from pylot.experiment.util import eval_config
 
 

@@ -4,11 +4,13 @@ os.environ['NEURITE_BACKEND'] = 'pytorch'
 # add MultiverSeg, UniverSeg and ScribblePrompt dependencies
 import sys
 from pathlib import Path
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-dependencies = [PROJECT_ROOT / "MultiverSeg", PROJECT_ROOT / "UniverSeg", PROJECT_ROOT / "ScribblePrompt"]
-for dependency in dependencies:
-    if str(dependency) not in sys.path:
-        sys.path.append(str(dependency))
+
+for dep in ["MultiverSeg", "UniverSeg", "ScribblePrompt"]:
+    dep_path = PROJECT_ROOT / dep
+    if str(dep_path) not in sys.path:
+        sys.path.append(str(dep_path))
 
 script_dir = Path(__file__).resolve().parent  
 results_dir = script_dir / "results"
@@ -17,11 +19,11 @@ results_dir.mkdir(exist_ok=True)
 import neurite as ne
 from typing import Any
 import torch
-from dataset.wbc_multiple_perms import WBCDataset
+from .dataset.wbc_multiple_perms import WBCDataset
 from multiverseg.models.sp_mvs import MultiverSeg
 import yaml
 from pylot.experiment.util import eval_config
-from score.dice_score import dice_score
+from .score.dice_score import dice_score
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -48,7 +50,7 @@ class MVSegOrderingExperiment():
         self.dice_cutoff = dice_cutoff
         self.seed = seed
         self.interaction_protocol = interaction_protocol
-        self.experiment_folder = results_dir / f"Experiment {experiment_number}"
+        self.experiment_folder = results_dir / f"Experiment_{experiment_number}"
         self.experiment_folder.mkdir(exist_ok=True)
         self.experiment_number = experiment_number
         np.random.seed(seed)
@@ -65,7 +67,7 @@ class MVSegOrderingExperiment():
             support_images, support_labels = zip(*shuffled_data)
             support_images = torch.stack(support_images).to("cpu")
             support_labels = torch.stack(support_labels).to("cpu")
-            seed_folder_dir =  self.experiment_folder / f"Perm Seed {permutation_index}"
+            seed_folder_dir =  self.experiment_folder / f"Perm_Seed_{permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
             per_iteration_records, per_image_records = self.run_seq_multiverseg(support_images, support_labels, permutation_index, seed_folder_dir)
             per_iteration_records.to_csv(seed_folder_dir / "per_iteration_records.csv", index=False)
