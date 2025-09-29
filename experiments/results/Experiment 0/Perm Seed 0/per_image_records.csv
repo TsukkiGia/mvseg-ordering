@@ -1,7 +1,0 @@
-experiment_seed,permutation_seed,image_index,initial_dice,final_dice,iterations_used,reached_cutoff,commit_type,experiment_number,protocol,dice_cutoff,prompt_limit
-23,0,0,0.7719486355781555,0.9501034617424011,3,True,prediction,0,"1_init_pos,0_init_neg,1_corrections",0.9,5
-23,0,1,0.9775658845901489,0.9775658845901489,1,True,prediction,0,"1_init_pos,0_init_neg,1_corrections",0.9,5
-23,0,2,0.9674394130706787,0.9674394130706787,1,True,prediction,0,"1_init_pos,0_init_neg,1_corrections",0.9,5
-23,0,3,0.8833960294723511,0.9535526037216187,2,True,prediction,0,"1_init_pos,0_init_neg,1_corrections",0.9,5
-23,0,4,0.9225181341171265,0.9225181341171265,1,True,prediction,0,"1_init_pos,0_init_neg,1_corrections",0.9,5
-23,0,5,0.9564209580421448,0.9564209580421448,1,True,prediction,0,"1_init_pos,0_init_neg,1_corrections",0.9,5
