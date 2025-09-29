@@ -36,6 +36,7 @@ class MVSegOrderingExperiment():
                  permutations: int,
                  dice_cutoff: float,
                  interaction_protocol: str,
+                 experiment_number: int,
                  seed: int = 23):
         
         self.dataset = dataset
@@ -47,8 +48,9 @@ class MVSegOrderingExperiment():
         self.dice_cutoff = dice_cutoff
         self.seed = seed
         self.interaction_protocol = interaction_protocol
-        self.experiment_folder = results_dir / f"{interaction_protocol}"
+        self.experiment_folder = results_dir / f"Experiment_{experiment_number}"
         self.experiment_folder.mkdir(exist_ok=True)
+        self.experiment_number = experiment_number
         np.random.seed(seed)
 
 
@@ -149,7 +151,7 @@ class MVSegOrderingExperiment():
                 "iterations_used": iterations_used,
                 "reached_cutoff": final_dice >= self.dice_cutoff,
                 "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
-                "experiment_number": int(self.interaction_protocol.split("_")[0]),
+                "experiment_number": self.experiment_number,
                 "protocol": self.interaction_protocol,
                 "dice_cutoff": self.dice_cutoff,
                 "prompt_limit": self.prompt_iterations
@@ -184,9 +186,9 @@ if __name__ == "__main__":
     prompt_generator_config = cfg['click_generator']
     prompt_generator =  eval_config(cfg)['click_generator']
     protocol_desc = (
-        f"{prompt_generator_config.get('init_pos_click', 0)} init pos, "
-        f"{prompt_generator_config.get('init_neg_click', 0)} init neg, "
-        f"{prompt_generator_config.get('correction_clicks', 0)} corrections"
+        f"{prompt_generator_config.get('init_pos_click', 0)}_init_pos,"
+        f"{prompt_generator_config.get('init_neg_click', 0)}_init_neg,"
+        f"{prompt_generator_config.get('correction_clicks', 0)}_corrections"
     )
     experiment_number = 0
     experiment = MVSegOrderingExperiment(
@@ -196,7 +198,8 @@ if __name__ == "__main__":
         commit_ground_truth=False, 
         permutations=1, 
         dice_cutoff=0.9, 
-        interaction_protocol=f"{experiment_number}_{protocol_desc}")
+        interaction_protocol=f"{protocol_desc}",
+        experiment_number=experiment_number)
     experiment.run_permutations()
 
     # experiment_number = 1
