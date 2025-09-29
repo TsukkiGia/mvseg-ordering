@@ -48,7 +48,7 @@ class MVSegOrderingExperiment():
         self.dice_cutoff = dice_cutoff
         self.seed = seed
         self.interaction_protocol = interaction_protocol
-        self.experiment_folder = results_dir / f"Experiment_{experiment_number}"
+        self.experiment_folder = results_dir / f"Experiment {experiment_number}"
         self.experiment_folder.mkdir(exist_ok=True)
         self.experiment_number = experiment_number
         np.random.seed(seed)
@@ -65,7 +65,7 @@ class MVSegOrderingExperiment():
             support_images, support_labels = zip(*shuffled_data)
             support_images = torch.stack(support_images).to("cpu")
             support_labels = torch.stack(support_labels).to("cpu")
-            seed_folder_dir =  self.experiment_folder / f"Perm_Seed_{permutation_index}"
+            seed_folder_dir =  self.experiment_folder / f"Perm Seed {permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
             per_iteration_records, per_image_records = self.run_seq_multiverseg(support_images, support_labels, permutation_index, seed_folder_dir)
             per_iteration_records.to_csv(seed_folder_dir / "per_iteration_records.csv", index=False)
@@ -112,7 +112,9 @@ class MVSegOrderingExperiment():
                 point_labels = annotations.get('point_labels')
                 if point_coords is not None and point_labels is not None:
                     show_points(point_coords.cpu(), point_labels.cpu(), ax=ax[0])
-                fig.savefig(seed_folder_dir / f"Image_{index}_prediction_{iteration}.png")
+                figure_dir = seed_folder_dir / "Prediction Figures"
+                figure_dir.mkdir(exist_ok=True)
+                fig.savefig(figure_dir / f"Image_{index}_prediction_{iteration}.png")
                 plt.close()
 
                 # get score for yhat
