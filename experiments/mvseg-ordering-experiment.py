@@ -108,8 +108,10 @@ class MVSegOrderingExperiment():
                 # visualize result
                 fig, ax = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0], width=10, 
                 titles=['Image', 'Label', 'Prediction'])
-                if "point_coords" in annotations and "point_labels" in annotations:
-                    show_points(annotations['point_coords'].cpu(), annotations['point_labels'].cpu(), ax=ax[0])
+                point_coords = annotations.get('point_coords')
+                point_labels = annotations.get('point_labels')
+                if point_coords is not None and point_labels is not None:
+                    show_points(point_coords.cpu(), point_labels.cpu(), ax=ax[0])
                 fig.savefig(seed_folder_dir / f"Image_{index}_prediction_{iteration}.png")
                 plt.close()
 
