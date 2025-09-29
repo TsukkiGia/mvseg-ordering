@@ -7,7 +7,7 @@ results_dir = PROJECT_ROOT / f"experiments/results"
 
 
 def plot_image_index_vs_initial_dice(experiment_number):
-    experiment_dir = results_dir/ f"Experiment_{experiment_number}"
+    experiment_dir = results_dir/ f"Experiment {experiment_number}"
     df = pandas.read_csv(experiment_dir / "all_image_results.csv")
     plt.figure(figsize=(12,6))
     for permutation, subdf in df.groupby("permutation_seed"):
@@ -23,7 +23,7 @@ def plot_image_index_vs_initial_dice(experiment_number):
     plt.savefig(figure_dir / "ImageIndexVsDice.png")
 
 def plot_image_index_vs_iterations_used(experiment_number):
-    experiment_dir = results_dir/ f"Experiment_{experiment_number}"
+    experiment_dir = results_dir/ f"Experiment {experiment_number}"
     df = pandas.read_csv(experiment_dir / "all_image_results.csv")
     plt.figure(figsize=(12,6))
     for permutation, subdf in df.groupby("permutation_seed"):
