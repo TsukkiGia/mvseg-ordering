@@ -2,11 +2,11 @@ import pandas
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-results_dir = PROJECT_ROOT / f"experiments/results"
 
 
-def plot_image_index_vs_initial_dice(experiment_number):
+def plot_image_index_vs_initial_dice(experiment_number, script_dir):
+    results_dir = script_dir / "results"
+    results_dir.mkdir(exist_ok=True)
     experiment_dir = results_dir/ f"Experiment_{experiment_number}"
     df = pandas.read_csv(experiment_dir / "all_image_results.csv")
     plt.figure(figsize=(12,6))
@@ -22,7 +22,9 @@ def plot_image_index_vs_initial_dice(experiment_number):
     figure_dir.mkdir(exist_ok=True)
     plt.savefig(figure_dir / "ImageIndexVsDice.png")
 
-def plot_image_index_vs_iterations_used(experiment_number):
+def plot_image_index_vs_iterations_used(experiment_number, script_dir):
+    results_dir = script_dir / "results"
+    results_dir.mkdir(exist_ok=True)
     experiment_dir = results_dir/ f"Experiment_{experiment_number}"
     df = pandas.read_csv(experiment_dir / "all_image_results.csv")
     plt.figure(figsize=(12,6))
@@ -42,6 +44,7 @@ def plot_image_index_vs_iterations_used(experiment_number):
 
 
 if __name__ == "__main__":
+    script_dir = Path(__file__).resolve().parents[1]
     for experiment_number in range(1):
-        plot_image_index_vs_initial_dice(experiment_number)
-        plot_image_index_vs_iterations_used(experiment_number)
+        plot_image_index_vs_initial_dice(experiment_number, script_dir)
+        plot_image_index_vs_iterations_used(experiment_number, script_dir)

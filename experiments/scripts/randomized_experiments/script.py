@@ -25,6 +25,7 @@ if __name__ == "__main__":
         commit_ground_truth=False,
         permutations=1,
         dice_cutoff=0.9,
+        script_dir=experiment_root
     )
 
     run_experiments([default_setup])

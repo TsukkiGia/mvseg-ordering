@@ -12,10 +12,6 @@ for dep in ["MultiverSeg", "UniverSeg", "ScribblePrompt"]:
     if str(dep_path) not in sys.path:
         sys.path.append(str(dep_path))
 
-script_dir = Path(__file__).resolve().parent  
-results_dir = script_dir / "results"
-results_dir.mkdir(exist_ok=True)
-
 import neurite as ne
 from typing import Any
 import torch
@@ -39,7 +35,9 @@ class MVSegOrderingExperiment():
                  dice_cutoff: float,
                  interaction_protocol: str,
                  experiment_number: int,
-                 seed: int = 23):
+                 script_dir: Path,
+                 seed: int = 23
+                 ):
         
         self.dataset = dataset
         self.prompt_generator = prompt_generator
@@ -50,6 +48,8 @@ class MVSegOrderingExperiment():
         self.dice_cutoff = dice_cutoff
         self.seed = seed
         self.interaction_protocol = interaction_protocol
+        results_dir = script_dir / "results"
+        results_dir.mkdir(exist_ok=True)
         self.experiment_folder = results_dir / f"Experiment_{experiment_number}"
         self.experiment_folder.mkdir(exist_ok=True)
         self.experiment_number = experiment_number
@@ -184,6 +184,7 @@ class MVSegOrderingExperiment():
             
 
 if __name__ == "__main__":
+    script_dir = Path(__file__).resolve().parent
     train_split = 0.6
     d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=10)
     d_test = WBCDataset('JTSC', split='test', label='nucleus', support_frac=train_split, testing_data_size=10)
@@ -205,7 +206,9 @@ if __name__ == "__main__":
         permutations=1, 
         dice_cutoff=0.9, 
         interaction_protocol=f"{protocol_desc}",
-        experiment_number=experiment_number)
+        experiment_number=experiment_number,
+        script_dir=script_dir
+    )
     experiment.run_permutations()
 
     # experiment_number = 1

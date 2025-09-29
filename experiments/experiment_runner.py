@@ -29,8 +29,8 @@ class ExperimentSetup:
     commit_ground_truth: bool
     permutations: int
     dice_cutoff: float
+    script_dir: Path
     seed: int = 23
-
 
 def load_prompt_generator(config_path: Path, key: str):
     """Return (prompt_generator, protocol_description)."""
@@ -63,12 +63,13 @@ def run_experiment(setup: ExperimentSetup):
         interaction_protocol=interaction_protocol,
         experiment_number=setup.experiment_number,
         seed=setup.seed,
+        script_dir=setup.script_dir
     )
     experiment.run_permutations()
 
     print(f"Plotting results for experiment {setup.experiment_number}...")
-    plot_image_index_vs_initial_dice(setup.experiment_number)
-    plot_image_index_vs_iterations_used(setup.experiment_number)
+    plot_image_index_vs_initial_dice(setup.experiment_number, setup.script_dir)
+    plot_image_index_vs_iterations_used(setup.experiment_number, setup.script_dir)
 
 
 def run_experiments(experiments: Sequence[ExperimentSetup]):
@@ -76,7 +77,6 @@ def run_experiments(experiments: Sequence[ExperimentSetup]):
         run_experiment(setup)
 
 
-# Example usage when running this module directly from VS Code.
 if __name__ == "__main__":
     example_dataset = WBCDataset(
         dataset="JTSC",
@@ -96,6 +96,7 @@ if __name__ == "__main__":
         commit_ground_truth=False,
         permutations=1,
         dice_cutoff=0.9,
+        script_dir=SCRIPT_DIR
     )
 
     run_experiments([default_setup])
