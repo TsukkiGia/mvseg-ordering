@@ -30,6 +30,7 @@ class ExperimentSetup:
     permutations: int
     dice_cutoff: float
     script_dir: Path
+    should_visualize: bool
     seed: int = 23
 
 def load_prompt_generator(config_path: Path, key: str):
@@ -63,7 +64,8 @@ def run_experiment(setup: ExperimentSetup):
         interaction_protocol=interaction_protocol,
         experiment_number=setup.experiment_number,
         seed=setup.seed,
-        script_dir=setup.script_dir
+        script_dir=setup.script_dir,
+        should_visualize=setup.should_visualize
     )
     experiment.run_permutations()
 

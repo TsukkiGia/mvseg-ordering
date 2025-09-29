@@ -36,6 +36,7 @@ class MVSegOrderingExperiment():
                  interaction_protocol: str,
                  experiment_number: int,
                  script_dir: Path,
+                 should_visualize: bool = False,
                  seed: int = 23
                  ):
         
@@ -53,6 +54,7 @@ class MVSegOrderingExperiment():
         self.experiment_folder = results_dir / f"Experiment_{experiment_number}"
         self.experiment_folder.mkdir(exist_ok=True)
         self.experiment_number = experiment_number
+        self.should_visualize = should_visualize
         np.random.seed(seed)
 
 
@@ -61,6 +63,7 @@ class MVSegOrderingExperiment():
         all_iterations = []
         all_images = []
         for permutation_index in range(self.permutations):
+            print(f"Doing Perm {permutation_index}...")
             rng = np.random.default_rng(permutation_index)
             shuffled_indices = rng.permutation(base_indices).tolist()
             shuffled_data = [self.dataset.get_item_by_data_index(index) for index in shuffled_indices]
@@ -89,6 +92,7 @@ class MVSegOrderingExperiment():
         context_labels = None
 
         for index in range(support_images.size(0)):
+            print(f"Doing Image {index+1}/{support_images.size(0)}...")
             # Image and Label: C x H x W
             image = support_images[index]
             label = support_labels[index]
@@ -108,16 +112,17 @@ class MVSegOrderingExperiment():
                 yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=True).to('cpu')
                 
                 # visualize result
-                fig, ax = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0], width=10, 
-                titles=['Image', 'Label', 'Prediction'])
-                point_coords = annotations.get('point_coords')
-                point_labels = annotations.get('point_labels')
-                if point_coords is not None and point_labels is not None:
-                    show_points(point_coords.cpu(), point_labels.cpu(), ax=ax[0])
-                figure_dir = seed_folder_dir / "Prediction Figures"
-                figure_dir.mkdir(exist_ok=True)
-                fig.savefig(figure_dir / f"Image_{index}_prediction_{iteration}.png")
-                plt.close()
+                if self.should_visualize:
+                    fig, ax = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0], width=10, 
+                    titles=['Image', 'Label', 'Prediction'])
+                    point_coords = annotations.get('point_coords')
+                    point_labels = annotations.get('point_labels')
+                    if point_coords is not None and point_labels is not None:
+                        show_points(point_coords.cpu(), point_labels.cpu(), ax=ax[0])
+                    figure_dir = seed_folder_dir / "Prediction Figures"
+                    figure_dir.mkdir(exist_ok=True)
+                    fig.savefig(figure_dir / f"Image_{index}_prediction_{iteration}.png")
+                    plt.close()
 
                 # get score for yhat
                 score = dice_score((yhat > 0).float(), label[None, ...])
