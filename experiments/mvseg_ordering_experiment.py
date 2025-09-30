@@ -85,20 +85,19 @@ class MVSegOrderingExperiment():
         all_iteration_results.to_csv(self.experiment_folder / "all_iteration_results.csv", index=False)
         all_image_results.to_csv(self.experiment_folder / "all_image_results.csv", index=False)
     
-    def run_seq_multiverseg(self, support_images, support_labels, ordering_index, seed_folder_dir):
-        # N x C x H x W for support images and labels
-        # C = 1
+    def _run_seq_common(self, images, labels, ordering_index, seed_folder_dir, *, update_context: bool):
+        # N x C x H x W for the provided images and labels
         rows = []
         image_summary_rows = []
-        assert(support_images.size(0) == support_labels.size(0))
+        assert(images.size(0) == labels.size(0))
         context_images = None
         context_labels = None
 
-        for index in range(support_images.size(0)):
-            print(f"Doing Image {index+1}/{support_images.size(0)}...")
+        for index in range(images.size(0)):
+            print(f"Doing Image {index+1}/{images.size(0)}...")
             # Image and Label: C x H x W
-            image = support_images[index]
-            label = support_labels[index]
+            image = images[index]
+            label = labels[index]
 
             # For each image, we are doing max 20 iterations to get to 90 Dice
             for iteration in range(self.prompt_iterations):
@@ -171,25 +170,37 @@ class MVSegOrderingExperiment():
                 "prompt_limit": self.prompt_iterations
             })
 
-            # after all the iterations, update the context set
-            binary_yhat = (yhat > 0).float() # B x C x H x W
+            if update_context:
+                binary_yhat = (yhat > 0).float()  # B x C x H x W
+                mask_to_commit = (label[None, ...] if self.commit_ground_truth else binary_yhat)
 
-            # B x C x H x W
-            mask_to_commit = (label[None, ...] if self.commit_ground_truth else binary_yhat)
-            
-            #TODO: Think about Batch Axis
-            if context_images is None:
-                # Add a new "context axis" so final shape is (B, n, 1, H, W)
-                context_images = image[None, None, ...]        # (1, 1, 1, H, W)
-                context_labels = mask_to_commit[None, ...]  # (1, 1, 1, H, W)
-            else:
-                # Append along the context dimension (dim=1)
-                context_images = torch.cat([context_images, image[None, None, ...]], dim=1)
-                context_labels = torch.cat([context_labels, mask_to_commit[None, ...]], dim=1)
+                if context_images is None:
+                    # Add a new "context axis" so final shape is (B, n, 1, H, W)
+                    context_images = image[None, None, ...]        # (1, 1, 1, H, W)
+                    context_labels = mask_to_commit[None, ...]  # (1, 1, 1, H, W)
+                else:
+                    # Append along the context dimension (dim=1)
+                    context_images = torch.cat([context_images, image[None, None, ...]], dim=1)
+                    context_labels = torch.cat([context_labels, mask_to_commit[None, ...]], dim=1)
         return pd.DataFrame.from_records(rows), pd.DataFrame.from_records(image_summary_rows)
-        
+    
+    def run_seq_multiverseg_eval(self, test_images, test_labels, ordering_index, seed_folder_dir):
+        return self._run_seq_common(
+            test_images,
+            test_labels,
+            ordering_index,
+            seed_folder_dir,
+            update_context=False,
+        )
 
-            
+    def run_seq_multiverseg(self, support_images, support_labels, ordering_index, seed_folder_dir):
+        return self._run_seq_common(
+            support_images,
+            support_labels,
+            ordering_index,
+            seed_folder_dir,
+            update_context=True,
+        )
 
 if __name__ == "__main__":
     script_dir = Path(__file__).resolve().parent
