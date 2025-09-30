@@ -27,7 +27,9 @@ from scribbleprompt.analysis.plot import show_points
 
 
 class MVSegOrderingExperiment():
-    def __init__(self, dataset: WBCDataset, 
+    def __init__(self, 
+                 support_dataset: WBCDataset,
+                 test_dataset: WBCDataset, 
                  prompt_generator: Any, 
                  prompt_iterations: int, 
                  commit_ground_truth: bool,
@@ -40,7 +42,8 @@ class MVSegOrderingExperiment():
                  seed: int = 23
                  ):
         
-        self.dataset = dataset
+        self.support_dataset = support_dataset
+        self.test_dataset = test_dataset
         self.prompt_generator = prompt_generator
         self.model = MultiverSeg(version="v0")
         self.prompt_iterations = prompt_iterations
@@ -59,14 +62,14 @@ class MVSegOrderingExperiment():
 
 
     def run_permutations(self):
-        base_indices = self.dataset.get_data_indices()
+        base_indices = self.support_dataset.get_data_indices()
         all_iterations = []
         all_images = []
         for permutation_index in range(self.permutations):
             print(f"Doing Perm {permutation_index}...")
             rng = np.random.default_rng(permutation_index)
             shuffled_indices = rng.permutation(base_indices).tolist()
-            shuffled_data = [self.dataset.get_item_by_data_index(index) for index in shuffled_indices]
+            shuffled_data = [self.support_dataset.get_item_by_data_index(index) for index in shuffled_indices]
             support_images, support_labels = zip(*shuffled_data)
             support_images = torch.stack(support_images).to("cpu")
             support_labels = torch.stack(support_labels).to("cpu")
@@ -204,7 +207,8 @@ if __name__ == "__main__":
     )
     experiment_number = 0
     experiment = MVSegOrderingExperiment(
-        dataset=d_support, 
+        support_dataset=d_support, 
+        test_dataset=d_test,
         prompt_generator=prompt_generator, 
         prompt_iterations=5, 
         commit_ground_truth=False, 

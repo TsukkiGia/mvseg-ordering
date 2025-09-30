@@ -22,7 +22,8 @@ PROMPT_CONFIG_DIR = SCRIPT_DIR / "prompt_generator_configs"
 class ExperimentSetup:
     """Bundled configuration for a single experiment run."""
     experiment_number: int
-    dataset: Any
+    support_dataset: Any
+    test_dataset: Any
     prompt_config_path: Path
     prompt_config_key: str
     prompt_iterations: int
@@ -49,13 +50,16 @@ def load_prompt_generator(config_path: Path, key: str):
 
 def run_experiment(setup: ExperimentSetup):
     print(f"Running experiment {setup.experiment_number}...")
-    dataset = setup.dataset
+    support_dataset = setup.support_dataset
+    test_dataset = setup.test_dataset
+
     prompt_generator, interaction_protocol = load_prompt_generator(
         setup.prompt_config_path, setup.prompt_config_key
     )
 
     experiment = MVSegOrderingExperiment(
-        dataset=dataset,
+        support_dataset=support_dataset,
+        test_dataset=test_dataset,
         prompt_generator=prompt_generator,
         prompt_iterations=setup.prompt_iterations,
         commit_ground_truth=setup.commit_ground_truth,
@@ -80,7 +84,7 @@ def run_experiments(experiments: Sequence[ExperimentSetup]):
 
 
 if __name__ == "__main__":
-    example_dataset = WBCDataset(
+    support_dataset = WBCDataset(
         dataset="JTSC",
         split="support",
         label="nucleus",
@@ -89,16 +93,27 @@ if __name__ == "__main__":
         seed=42,
     )
 
+    test_dataset = WBCDataset(
+        dataset='JTSC', 
+        split='test', 
+        label='nucleus', 
+        support_frac=0.6, 
+        testing_data_size=10,
+        seed=42
+    )
+
     default_setup = ExperimentSetup(
         experiment_number=0,
-        dataset=example_dataset,
+        support_dataset=support_dataset,
+        test_dataset=test_dataset,
         prompt_config_path=PROMPT_CONFIG_DIR / "click_prompt_generator.yml",
         prompt_config_key="click_generator",
         prompt_iterations=5,
         commit_ground_truth=False,
         permutations=1,
         dice_cutoff=0.9,
-        script_dir=SCRIPT_DIR
+        script_dir=SCRIPT_DIR,
+        should_visualize=True
     )
 
     run_experiments([default_setup])
