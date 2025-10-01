@@ -65,6 +65,8 @@ class MVSegOrderingExperiment():
         base_indices = self.support_dataset.get_data_indices()
         all_iterations = []
         all_images = []
+        eval_all_iterations = []
+        eval_all_images = []
         for permutation_index in range(self.permutations):
             print(f"Doing Perm {permutation_index}...")
             rng = np.random.default_rng(permutation_index)
@@ -75,7 +77,7 @@ class MVSegOrderingExperiment():
             support_labels = torch.stack(support_labels).to("cpu")
             seed_folder_dir =  self.experiment_folder / f"Perm_Seed_{permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
-            per_iteration_records, per_image_records = self.run_seq_multiverseg(
+            per_iteration_records, per_image_records, context_images, context_labels = self.run_seq_multiverseg(
                 support_images,
                 support_labels,
                 shuffled_indices,
@@ -86,10 +88,35 @@ class MVSegOrderingExperiment():
             per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
             all_iterations.append(per_iteration_records)
             all_images.append(per_image_records)
+            test_indices = list(self.test_dataset.get_data_indices())
+            if test_indices and context_images is not None and context_labels is not None:
+                test_data = [self.test_dataset.get_item_by_data_index(index) for index in test_indices]
+                test_images, test_labels = zip(*test_data)
+                test_images = torch.stack(test_images).to("cpu")
+                test_labels = torch.stack(test_labels).to("cpu")
+                eval_iteration_records, eval_image_records, _, _ = self.run_seq_multiverseg_eval(
+                    test_images,
+                    test_labels,
+                    test_indices,
+                    permutation_index,
+                    seed_folder_dir,
+                    context_images=context_images,
+                    context_labels=context_labels,
+                )
+                eval_iteration_records.to_csv(seed_folder_dir / "per_iteration_eval_records.csv", index=False)
+                eval_image_records.to_csv(seed_folder_dir / "per_image_eval_records.csv", index=False)
+                eval_all_iterations.append(eval_iteration_records)
+                eval_all_images.append(eval_image_records)
         all_iteration_results = pd.concat(all_iterations, ignore_index=True)
         all_image_results = pd.concat(all_images, ignore_index=True)
         all_iteration_results.to_csv(self.experiment_folder / "all_iteration_results.csv", index=False)
         all_image_results.to_csv(self.experiment_folder / "all_image_results.csv", index=False)
+
+        if eval_all_iterations and eval_all_images:
+            all_eval_iteration_results = pd.concat(eval_all_iterations, ignore_index=True)
+            all_eval_image_results = pd.concat(eval_all_images, ignore_index=True)
+            all_eval_iteration_results.to_csv(self.experiment_folder / "all_iteration_eval_results.csv", index=False)
+            all_eval_image_results.to_csv(self.experiment_folder / "all_image_eval_results.csv", index=False)
     
     def _run_seq_common(
         self,
@@ -98,16 +125,15 @@ class MVSegOrderingExperiment():
         image_ids,
         ordering_index,
         seed_folder_dir,
-        *,
-        update_context,
+        context_images=None,
+        context_labels=None,
+        update_context=False,
     ):
         # N x C x H x W for the provided images and labels
         rows = []
         image_summary_rows = []
         assert(images.size(0) == labels.size(0))
         assert len(image_ids) == images.size(0)
-        context_images = None
-        context_labels = None
 
         for index in range(images.size(0)):
             print(f"Doing Image {index+1}/{images.size(0)}...")
@@ -201,7 +227,12 @@ class MVSegOrderingExperiment():
                     # Append along the context dimension (dim=1)
                     context_images = torch.cat([context_images, image[None, None, ...]], dim=1)
                     context_labels = torch.cat([context_labels, mask_to_commit[None, ...]], dim=1)
-        return pd.DataFrame.from_records(rows), pd.DataFrame.from_records(image_summary_rows)
+        return (
+            pd.DataFrame.from_records(rows),
+            pd.DataFrame.from_records(image_summary_rows),
+            context_images,
+            context_labels,
+        )
     
     def run_seq_multiverseg_eval(
         self,
@@ -210,6 +241,8 @@ class MVSegOrderingExperiment():
         image_ids: Sequence[int],
         ordering_index,
         seed_folder_dir,
+        context_images=None,
+        context_labels=None,
     ):
         return self._run_seq_common(
             test_images,
@@ -217,6 +250,8 @@ class MVSegOrderingExperiment():
             image_ids,
             ordering_index,
             seed_folder_dir,
+            context_images=context_images,
+            context_labels=context_labels,
             update_context=False,
         )
 
@@ -234,6 +269,8 @@ class MVSegOrderingExperiment():
             image_ids,
             ordering_index,
             seed_folder_dir,
+            context_images=None,
+            context_labels=None,
             update_context=True,
         )
 
@@ -258,11 +295,12 @@ if __name__ == "__main__":
         prompt_generator=prompt_generator, 
         prompt_iterations=5, 
         commit_ground_truth=False, 
-        permutations=1, 
+        permutations=4, 
         dice_cutoff=0.9, 
         interaction_protocol=f"{protocol_desc}",
         experiment_number=experiment_number,
-        script_dir=script_dir
+        script_dir=script_dir,
+        should_visualize=True
     )
     experiment.run_permutations()
 
