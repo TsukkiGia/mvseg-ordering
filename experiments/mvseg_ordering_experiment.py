@@ -13,7 +13,7 @@ for dep in ["MultiverSeg", "UniverSeg", "ScribblePrompt"]:
         sys.path.append(str(dep_path))
 
 import neurite as ne
-from typing import Any
+from typing import Any, Sequence
 import torch
 from .dataset.wbc_multiple_perms import WBCDataset
 from multiverseg.models.sp_mvs import MultiverSeg
@@ -75,7 +75,13 @@ class MVSegOrderingExperiment():
             support_labels = torch.stack(support_labels).to("cpu")
             seed_folder_dir =  self.experiment_folder / f"Perm_Seed_{permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
-            per_iteration_records, per_image_records = self.run_seq_multiverseg(support_images, support_labels, permutation_index, seed_folder_dir)
+            per_iteration_records, per_image_records = self.run_seq_multiverseg(
+                support_images,
+                support_labels,
+                shuffled_indices,
+                permutation_index,
+                seed_folder_dir,
+            )
             per_iteration_records.to_csv(seed_folder_dir / "per_iteration_records.csv", index=False)
             per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
             all_iterations.append(per_iteration_records)
@@ -85,11 +91,21 @@ class MVSegOrderingExperiment():
         all_iteration_results.to_csv(self.experiment_folder / "all_iteration_results.csv", index=False)
         all_image_results.to_csv(self.experiment_folder / "all_image_results.csv", index=False)
     
-    def _run_seq_common(self, images, labels, ordering_index, seed_folder_dir, *, update_context: bool):
+    def _run_seq_common(
+        self,
+        images,
+        labels,
+        image_ids,
+        ordering_index,
+        seed_folder_dir,
+        *,
+        update_context,
+    ):
         # N x C x H x W for the provided images and labels
         rows = []
         image_summary_rows = []
         assert(images.size(0) == labels.size(0))
+        assert len(image_ids) == images.size(0)
         context_images = None
         context_labels = None
 
@@ -98,6 +114,7 @@ class MVSegOrderingExperiment():
             # Image and Label: C x H x W
             image = images[index]
             label = labels[index]
+            image_id = image_ids[index]
 
             # For each image, we are doing max 20 iterations to get to 90 Dice
             for iteration in range(self.prompt_iterations):
@@ -142,6 +159,7 @@ class MVSegOrderingExperiment():
                     "experiment_seed": self.seed,
                     "permutation_seed": ordering_index,
                     "image_index": index,
+                    "image_id": image_id,
                     "iteration": iteration,
                     "commit_ground_truth": self.commit_ground_truth,
                     "dice_cutoff": self.dice_cutoff,
@@ -159,6 +177,7 @@ class MVSegOrderingExperiment():
                 "experiment_seed": self.seed,
                 "permutation_seed": ordering_index,
                 "image_index": index,
+                "image_id": image_id,
                 "initial_dice": initial_dice,
                 "final_dice": final_dice,
                 "iterations_used": iterations_used,
@@ -184,19 +203,35 @@ class MVSegOrderingExperiment():
                     context_labels = torch.cat([context_labels, mask_to_commit[None, ...]], dim=1)
         return pd.DataFrame.from_records(rows), pd.DataFrame.from_records(image_summary_rows)
     
-    def run_seq_multiverseg_eval(self, test_images, test_labels, ordering_index, seed_folder_dir):
+    def run_seq_multiverseg_eval(
+        self,
+        test_images,
+        test_labels,
+        image_ids: Sequence[int],
+        ordering_index,
+        seed_folder_dir,
+    ):
         return self._run_seq_common(
             test_images,
             test_labels,
+            image_ids,
             ordering_index,
             seed_folder_dir,
             update_context=False,
         )
 
-    def run_seq_multiverseg(self, support_images, support_labels, ordering_index, seed_folder_dir):
+    def run_seq_multiverseg(
+        self,
+        support_images,
+        support_labels,
+        image_ids: Sequence[int],
+        ordering_index,
+        seed_folder_dir,
+    ):
         return self._run_seq_common(
             support_images,
             support_labels,
+            image_ids,
             ordering_index,
             seed_folder_dir,
             update_context=True,
