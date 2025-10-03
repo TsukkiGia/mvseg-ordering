@@ -119,7 +119,59 @@ class MVSegOrderingExperiment():
             all_eval_image_results = pd.concat(eval_all_images, ignore_index=True)
             all_eval_iteration_results.to_csv(self.experiment_folder / "all_iteration_eval_results.csv", index=False)
             all_eval_image_results.to_csv(self.experiment_folder / "all_image_eval_results.csv", index=False)
-    
+
+    def _append_iteration_record(
+        self,
+        rows,
+        ordering_index: int,
+        image_index: int,
+        image_id: Any,
+        iteration: int,
+        score: float,
+        pos_clicks: int,
+        neg_clicks: int,
+    ) -> None:
+        rows.append({
+            "experiment_seed": self.seed,
+            "permutation_seed": ordering_index,
+            "image_index": image_index,
+            "image_id": image_id,
+            "iteration": iteration,
+            "commit_ground_truth": self.commit_ground_truth,
+            "dice_cutoff": self.dice_cutoff,
+            "pos_clicks": pos_clicks,
+            "neg_clicks": neg_clicks,
+            "score": score,
+            "prompt_limit": self.prompt_iterations,
+        })
+
+    def _append_image_summary_record(
+        self,
+        image_summary_rows,
+        ordering_index: int,
+        image_index: int,
+        image_id: Any,
+        initial_dice: float,
+        final_dice: float,
+        iterations_used: int,
+        reached_cutoff: bool,
+    ) -> None:
+        image_summary_rows.append({
+            "experiment_seed": self.seed,
+            "permutation_seed": ordering_index,
+            "image_index": image_index,
+            "image_id": image_id,
+            "initial_dice": initial_dice,
+            "final_dice": final_dice,
+            "iterations_used": iterations_used,
+            "reached_cutoff": reached_cutoff,
+            "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
+            "experiment_number": self.experiment_number,
+            "protocol": self.interaction_protocol,
+            "dice_cutoff": self.dice_cutoff,
+            "prompt_limit": self.prompt_iterations,
+        })
+
     def _run_seq_common(
         self,
         images,
@@ -150,39 +202,31 @@ class MVSegOrderingExperiment():
             score = dice_score((yhat > 0).float(), label[None, ...])
             initial_dice = float(score.item())
 
-            rows.append({
-                "experiment_seed": self.seed,
-                "permutation_seed": ordering_index,
-                "image_index": index,
-                "image_id": image_id,
-                "iteration": -1,
-                "commit_ground_truth": self.commit_ground_truth,
-                "dice_cutoff": self.dice_cutoff,
-                "pos_clicks": 0,
-                "neg_clicks": 0,
-                "score": float(score.item()),
-                "prompt_limit": self.prompt_iterations,
-                })
+            self._append_iteration_record(
+                rows=rows,
+                ordering_index=ordering_index,
+                image_index=index,
+                image_id=image_id,
+                iteration=-1,
+                score=initial_dice,
+                pos_clicks=0,
+                neg_clicks=0,
+            )
 
             if initial_dice >= self.dice_cutoff:
-                
-                image_summary_rows.append({
-                    "experiment_seed": self.seed,
-                    "permutation_seed": ordering_index,
-                    "image_index": index,
-                    "image_id": image_id,
-                    "initial_dice": initial_dice,
-                    "final_dice": initial_dice,
-                    "iterations_used": 0,
-                    "reached_cutoff": True,
-                    "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
-                    "experiment_number": self.experiment_number,
-                    "protocol": self.interaction_protocol,
-                    "dice_cutoff": self.dice_cutoff,
-                    "prompt_limit": self.prompt_iterations
-                }) 
+                self._append_image_summary_record(
+                    image_summary_rows=image_summary_rows,
+                    ordering_index=ordering_index,
+                    image_index=index,
+                    image_id=image_id,
+                    initial_dice=initial_dice,
+                    final_dice=initial_dice,
+                    iterations_used=0,
+                    reached_cutoff=True,
+                )
             else:
                 iterations_used = 0
+                score_value = initial_dice
                 # For each image, we are doing max 20 iterations to get to dice cutoff
                 for iteration in range(self.prompt_iterations):
                     iterations_used = iteration + 1
@@ -213,6 +257,7 @@ class MVSegOrderingExperiment():
 
                     # get score for yhat
                     score = dice_score((yhat > 0).float(), label[None, ...])
+                    score_value = float(score.item())
 
                     # get interaction stats
                     if prompts.get('point_labels', None) is not None:
@@ -221,38 +266,30 @@ class MVSegOrderingExperiment():
                     else:
                         pos_clicks = neg_clicks = 0
 
-                    rows.append({
-                        "experiment_seed": self.seed,
-                        "permutation_seed": ordering_index,
-                        "image_index": index,
-                        "image_id": image_id,
-                        "iteration": iteration,
-                        "commit_ground_truth": self.commit_ground_truth,
-                        "dice_cutoff": self.dice_cutoff,
-                        "pos_clicks": pos_clicks,
-                        "neg_clicks": neg_clicks,
-                        "score": float(score.item()),
-                        "prompt_limit": self.prompt_iterations,
-                    })
-                    if score >= self.dice_cutoff:
+                    self._append_iteration_record(
+                        rows=rows,
+                        ordering_index=ordering_index,
+                        image_index=index,
+                        image_id=image_id,
+                        iteration=iteration,
+                        score=score_value,
+                        pos_clicks=pos_clicks,
+                        neg_clicks=neg_clicks,
+                    )
+                    if score_value >= self.dice_cutoff:
                         break
 
-                final_dice = float(score.item())
-                image_summary_rows.append({
-                    "experiment_seed": self.seed,
-                    "permutation_seed": ordering_index,
-                    "image_index": index,
-                    "image_id": image_id,
-                    "initial_dice": initial_dice,
-                    "final_dice": final_dice,
-                    "iterations_used": iterations_used,
-                    "reached_cutoff": final_dice >= self.dice_cutoff,
-                    "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
-                    "experiment_number": self.experiment_number,
-                    "protocol": self.interaction_protocol,
-                    "dice_cutoff": self.dice_cutoff,
-                    "prompt_limit": self.prompt_iterations
-                })
+                final_dice = score_value
+                self._append_image_summary_record(
+                    image_summary_rows=image_summary_rows,
+                    ordering_index=ordering_index,
+                    image_index=index,
+                    image_id=image_id,
+                    initial_dice=initial_dice,
+                    final_dice=final_dice,
+                    iterations_used=iterations_used,
+                    reached_cutoff=final_dice >= self.dice_cutoff,
+                )
 
             if update_context:
                 binary_yhat = (yhat > 0).float()  # B x C x H x W
