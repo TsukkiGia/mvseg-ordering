@@ -143,6 +143,7 @@ class MVSegOrderingExperiment():
         score: float,
         pos_clicks: int,
         neg_clicks: int,
+        context_size: int
     ) -> None:
         rows.append({
             "experiment_seed": self.seed,
@@ -156,6 +157,7 @@ class MVSegOrderingExperiment():
             "neg_clicks": neg_clicks,
             "score": score,
             "prompt_limit": self.prompt_iterations,
+            "context_size": context_size
         })
 
     def _append_image_summary_record(
@@ -243,6 +245,7 @@ class MVSegOrderingExperiment():
         score_value = float(dice_score((yhat > 0).float(), label[None, ...]).item())
         iterations_used = 0
         prompts = None
+        context_size = 0 if context_images is None else len(context_images[0])
 
         for iteration in range(self.prompt_iterations):
             iterations_used = iteration + 1
@@ -287,6 +290,7 @@ class MVSegOrderingExperiment():
                 score=score_value,
                 pos_clicks=pos_clicks,
                 neg_clicks=neg_clicks,
+                context_size=context_size
             )
 
             if score_value >= self.dice_cutoff:
@@ -323,6 +327,7 @@ class MVSegOrderingExperiment():
             yhat = self.model.predict(image[None], context_images, context_labels, return_logits=True).to('cpu')
             score = dice_score((yhat > 0).float(), label[None, ...])
             initial_dice = float(score.item())
+            context_size = 0 if context_images is None else len(context_images[0])
 
             self._append_iteration_record(
                 rows=rows,
@@ -333,6 +338,7 @@ class MVSegOrderingExperiment():
                 score=initial_dice,
                 pos_clicks=0,
                 neg_clicks=0,
+                context_size=context_size
             )
 
             if initial_dice >= self.dice_cutoff:
