@@ -5,10 +5,7 @@ from typing import Any, Sequence
 from dataclasses import dataclass
 import yaml
 
-from .analysis.results_plot import (
-    plot_image_index_vs_initial_dice,
-    plot_image_index_vs_iterations_used,
-)
+from .analysis.results_plot import plot_experiment_results
 from .dataset.wbc_multiple_perms import WBCDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
 from pylot.experiment.util import eval_config
@@ -73,8 +70,7 @@ def run_experiment(setup: ExperimentSetup):
     experiment.run_permutations()
 
     print(f"Plotting results for experiment {setup.experiment_number}...")
-    plot_image_index_vs_initial_dice(setup.experiment_number, setup.script_dir)
-    plot_image_index_vs_iterations_used(setup.experiment_number, setup.script_dir)
+    plot_experiment_results(setup.experiment_number, setup.script_dir)
 
 
 def run_experiments(experiments: Sequence[ExperimentSetup]):

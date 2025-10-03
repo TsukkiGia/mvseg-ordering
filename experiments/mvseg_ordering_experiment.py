@@ -438,7 +438,7 @@ class MVSegOrderingExperiment():
 if __name__ == "__main__":
     script_dir = Path(__file__).resolve().parent
     train_split = 0.6
-    d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=10)
+    d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=30)
     with open(script_dir / "prompt_generator_configs/click_prompt_generator.yml", "r") as f:
         cfg = yaml.safe_load(f)
     prompt_generator_config = cfg['click_generator']
@@ -452,14 +452,14 @@ if __name__ == "__main__":
     experiment = MVSegOrderingExperiment(
         support_dataset=d_support, 
         prompt_generator=prompt_generator, 
-        prompt_iterations=5, 
+        prompt_iterations=20, 
         commit_ground_truth=False, 
-        permutations=2, 
+        permutations=20, 
         dice_cutoff=0.9, 
         interaction_protocol=f"{protocol_desc}",
         experiment_number=experiment_number,
         script_dir=script_dir,
-        should_visualize=True,
+        should_visualize=False,
         eval_holdout=3,
     )
     experiment.run_permutations()
