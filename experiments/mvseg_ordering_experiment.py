@@ -214,6 +214,73 @@ class MVSegOrderingExperiment():
 
         return context_images, context_labels
 
+    def _run_prompt_loop(
+        self,
+        image: torch.Tensor,
+        label: torch.Tensor,
+        image_index: int,
+        image_id: Any,
+        context_images: torch.Tensor,
+        context_labels: torch.Tensor,
+        yhat: torch.Tensor,
+        rows,
+        ordering_index: int,
+        seed_folder_dir: Path,
+    ):
+        score_value = float(dice_score((yhat > 0).float(), label[None, ...]).item())
+        iterations_used = 0
+        prompts = None
+
+        for iteration in range(self.prompt_iterations):
+            iterations_used = iteration + 1
+            if iteration == 0:
+                prompts = self.prompt_generator(image[None], label[None])
+            else:
+                prompts = self.prompt_generator.subsequent_prompt(
+                    mask_pred=yhat,
+                    prev_input=prompts,
+                    new_prompt=True,
+                )
+
+            annotations = {k: prompts.get(k) for k in ['point_coords', 'point_labels', 'mask_input', 'scribbles', 'box']}
+            yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=True).to('cpu')
+
+            if self.should_visualize:
+                self._visualize_data(
+                    image=image,
+                    label=label,
+                    prediction=yhat,
+                    annotations=annotations,
+                    seed_folder_dir=seed_folder_dir,
+                    image_index=image_index,
+                    iteration=iteration,
+                )
+
+            score = dice_score((yhat > 0).float(), label[None, ...])
+            score_value = float(score.item())
+
+            if prompts.get('point_labels', None) is not None:
+                pos_clicks = prompts.get('point_labels').sum().item()
+                neg_clicks = prompts.get('point_labels').shape[1] - pos_clicks
+            else:
+                pos_clicks = neg_clicks = 0
+
+            self._append_iteration_record(
+                rows=rows,
+                ordering_index=ordering_index,
+                image_index=image_index,
+                image_id=image_id,
+                iteration=iteration,
+                score=score_value,
+                pos_clicks=pos_clicks,
+                neg_clicks=neg_clicks,
+            )
+
+            if score_value >= self.dice_cutoff:
+                break
+
+        return score_value, iterations_used, yhat
+
     def _run_seq_common(
         self,
         images,
@@ -267,59 +334,18 @@ class MVSegOrderingExperiment():
                     reached_cutoff=True,
                 )
             else:
-                iterations_used = 0
-                score_value = initial_dice
-                # For each image, we are doing max 20 iterations to get to dice cutoff
-                for iteration in range(self.prompt_iterations):
-                    iterations_used = iteration + 1
-                    if iteration == 0:
-                        prompts = self.prompt_generator(image[None], label[None])
-                    else:
-                        prompts = self.prompt_generator.subsequent_prompt(
-                                mask_pred=yhat, # shape: (B, C, H, W)
-                                prev_input=prompts,
-                                new_prompt=True
-                        )
-                    
-                    annotations = {k:prompts.get(k) for k in ['point_coords', 'point_labels', 'mask_input', 'scribbles', 'box']}
-                    yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=True).to('cpu')
-                    
-                    if self.should_visualize:
-                        self._visualize_data(
-                            image=image,
-                            label=label,
-                            prediction=yhat,
-                            annotations=annotations,
-                            seed_folder_dir=seed_folder_dir,
-                            image_index=index,
-                            iteration=iteration,
-                        )
-
-                    # get score for yhat
-                    score = dice_score((yhat > 0).float(), label[None, ...])
-                    score_value = float(score.item())
-
-                    # get interaction stats
-                    if prompts.get('point_labels', None) is not None:
-                        pos_clicks = prompts.get('point_labels').sum().item()
-                        neg_clicks = prompts.get('point_labels').shape[1] - pos_clicks
-                    else:
-                        pos_clicks = neg_clicks = 0
-
-                    self._append_iteration_record(
-                        rows=rows,
-                        ordering_index=ordering_index,
-                        image_index=index,
-                        image_id=image_id,
-                        iteration=iteration,
-                        score=score_value,
-                        pos_clicks=pos_clicks,
-                        neg_clicks=neg_clicks,
-                    )
-                    if score_value >= self.dice_cutoff:
-                        break
-
-                final_dice = score_value
+                final_dice, iterations_used, yhat = self._run_prompt_loop(
+                    image=image,
+                    label=label,
+                    image_index=index,
+                    image_id=image_id,
+                    context_images=context_images,
+                    context_labels=context_labels,
+                    yhat=yhat,
+                    rows=rows,
+                    ordering_index=ordering_index,
+                    seed_folder_dir=seed_folder_dir,
+                )
                 self._append_image_summary_record(
                     image_summary_rows=image_summary_rows,
                     ordering_index=ordering_index,
@@ -407,7 +433,7 @@ if __name__ == "__main__":
         prompt_generator=prompt_generator, 
         prompt_iterations=5, 
         commit_ground_truth=False, 
-        permutations=4, 
+        permutations=2, 
         dice_cutoff=0.9, 
         interaction_protocol=f"{protocol_desc}",
         experiment_number=experiment_number,
