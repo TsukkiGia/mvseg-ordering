@@ -27,23 +27,23 @@ from scribbleprompt.analysis.plot import show_points
 
 
 class MVSegOrderingExperiment():
-    def __init__(self, 
-                 support_dataset: WBCDataset,
-                 test_dataset: WBCDataset, 
-                 prompt_generator: Any, 
-                 prompt_iterations: int, 
-                 commit_ground_truth: bool,
-                 permutations: int,
-                 dice_cutoff: float,
-                 interaction_protocol: str,
-                 experiment_number: int,
-                 script_dir: Path,
-                 should_visualize: bool = False,
-                 seed: int = 23
-                 ):
+    def __init__(
+        self,
+        support_dataset: WBCDataset,
+        prompt_generator: Any,
+        prompt_iterations: int,
+        commit_ground_truth: bool,
+        permutations: int,
+        dice_cutoff: float,
+        interaction_protocol: str,
+        experiment_number: int,
+        script_dir: Path,
+        should_visualize: bool = False,
+        seed: int = 23,
+        eval_holdout: int = 1,
+    ):
         
         self.support_dataset = support_dataset
-        self.test_dataset = test_dataset
         self.prompt_generator = prompt_generator
         self.model = MultiverSeg(version="v0")
         self.prompt_iterations = prompt_iterations
@@ -52,6 +52,7 @@ class MVSegOrderingExperiment():
         self.dice_cutoff = dice_cutoff
         self.seed = seed
         self.interaction_protocol = interaction_protocol
+        self.eval_holdout = eval_holdout
         results_dir = script_dir / "results"
         results_dir.mkdir(exist_ok=True)
         self.experiment_folder = results_dir / f"Experiment_{experiment_number}"
@@ -62,7 +63,12 @@ class MVSegOrderingExperiment():
 
 
     def run_permutations(self):
-        base_indices = self.support_dataset.get_data_indices()
+        base_indices = list(self.support_dataset.get_data_indices())
+        if len(base_indices) <= self.eval_holdout:
+            raise ValueError("Support dataset must contain more samples than the eval holdout size.")
+
+        eval_indices = base_indices[:self.eval_holdout]
+        train_indices = base_indices[self.eval_holdout:]
         all_iterations = []
         all_images = []
         eval_all_iterations = []
@@ -70,7 +76,7 @@ class MVSegOrderingExperiment():
         for permutation_index in range(self.permutations):
             print(f"Doing Perm {permutation_index}...")
             rng = np.random.default_rng(self.seed + permutation_index)
-            shuffled_indices = rng.permutation(base_indices).tolist()
+            shuffled_indices = rng.permutation(train_indices).tolist()
             shuffled_data = [self.support_dataset.get_item_by_data_index(index) for index in shuffled_indices]
             support_images, support_labels = zip(*shuffled_data)
             support_images = torch.stack(support_images).to("cpu")
@@ -88,17 +94,15 @@ class MVSegOrderingExperiment():
             per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
             all_iterations.append(per_iteration_records)
             all_images.append(per_image_records)
-            test_indices = list(self.test_dataset.get_data_indices())
-
-            if test_indices and context_images is not None and context_labels is not None:
-                test_data = [self.test_dataset.get_item_by_data_index(index) for index in test_indices]
-                test_images, test_labels = zip(*test_data)
-                test_images = torch.stack(test_images).to("cpu")
-                test_labels = torch.stack(test_labels).to("cpu")
+            if context_images is not None and context_labels is not None:
+                eval_data = [self.support_dataset.get_item_by_data_index(index) for index in eval_indices]
+                eval_images, eval_labels = zip(*eval_data)
+                eval_images = torch.stack(eval_images).to("cpu")
+                eval_labels = torch.stack(eval_labels).to("cpu")
                 eval_iteration_records, eval_image_records, _, _ = self.run_seq_multiverseg_eval(
-                    test_images,
-                    test_labels,
-                    test_indices,
+                    eval_images,
+                    eval_labels,
+                    eval_indices,
                     permutation_index,
                     seed_folder_dir,
                     context_images=context_images,
@@ -435,7 +439,6 @@ if __name__ == "__main__":
     script_dir = Path(__file__).resolve().parent
     train_split = 0.6
     d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=10)
-    d_test = WBCDataset('JTSC', split='test', label='nucleus', support_frac=train_split, testing_data_size=10)
     with open(script_dir / "prompt_generator_configs/click_prompt_generator.yml", "r") as f:
         cfg = yaml.safe_load(f)
     prompt_generator_config = cfg['click_generator']
@@ -448,7 +451,6 @@ if __name__ == "__main__":
     experiment_number = 0
     experiment = MVSegOrderingExperiment(
         support_dataset=d_support, 
-        test_dataset=d_test,
         prompt_generator=prompt_generator, 
         prompt_iterations=5, 
         commit_ground_truth=False, 
@@ -457,7 +459,8 @@ if __name__ == "__main__":
         interaction_protocol=f"{protocol_desc}",
         experiment_number=experiment_number,
         script_dir=script_dir,
-        should_visualize=True
+        should_visualize=True,
+        eval_holdout=3,
     )
     experiment.run_permutations()
 

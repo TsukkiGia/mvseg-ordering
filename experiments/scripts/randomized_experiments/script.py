@@ -14,19 +14,10 @@ if __name__ == "__main__":
         testing_data_size=30,
         seed=42,
     )
-    test_dataset = WBCDataset(
-        dataset="JTSC",
-        split="test",
-        label="nucleus",
-        support_frac=0.6,
-        testing_data_size=30,
-        seed=42,
-    )
-
+    # 100 - 200 perms
     default_setup = ExperimentSetup(
         experiment_number=0,
         support_dataset=support_dataset,
-        test_dataset=test_dataset,
         prompt_config_path=PROMPT_CONFIG_DIR / "click_prompt_generator.yml",
         prompt_config_key="click_generator",
         prompt_iterations=20,
@@ -34,7 +25,8 @@ if __name__ == "__main__":
         permutations=10,
         dice_cutoff=0.9,
         script_dir=experiment_root,
-        should_visualize=False
+        should_visualize=False,
+        eval_holdout=1,
     )
 
     run_experiments([default_setup])

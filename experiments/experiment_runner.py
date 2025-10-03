@@ -23,7 +23,6 @@ class ExperimentSetup:
     """Bundled configuration for a single experiment run."""
     experiment_number: int
     support_dataset: Any
-    test_dataset: Any
     prompt_config_path: Path
     prompt_config_key: str
     prompt_iterations: int
@@ -33,6 +32,7 @@ class ExperimentSetup:
     script_dir: Path
     should_visualize: bool
     seed: int = 23
+    eval_holdout: int = 1
 
 def load_prompt_generator(config_path: Path, key: str):
     """Return (prompt_generator, protocol_description)."""
@@ -51,7 +51,6 @@ def load_prompt_generator(config_path: Path, key: str):
 def run_experiment(setup: ExperimentSetup):
     print(f"Running experiment {setup.experiment_number}...")
     support_dataset = setup.support_dataset
-    test_dataset = setup.test_dataset
 
     prompt_generator, interaction_protocol = load_prompt_generator(
         setup.prompt_config_path, setup.prompt_config_key
@@ -59,7 +58,6 @@ def run_experiment(setup: ExperimentSetup):
 
     experiment = MVSegOrderingExperiment(
         support_dataset=support_dataset,
-        test_dataset=test_dataset,
         prompt_generator=prompt_generator,
         prompt_iterations=setup.prompt_iterations,
         commit_ground_truth=setup.commit_ground_truth,
@@ -69,7 +67,8 @@ def run_experiment(setup: ExperimentSetup):
         experiment_number=setup.experiment_number,
         seed=setup.seed,
         script_dir=setup.script_dir,
-        should_visualize=setup.should_visualize
+        should_visualize=setup.should_visualize,
+        eval_holdout=setup.eval_holdout,
     )
     experiment.run_permutations()
 
@@ -93,19 +92,9 @@ if __name__ == "__main__":
         seed=42,
     )
 
-    test_dataset = WBCDataset(
-        dataset='JTSC', 
-        split='test', 
-        label='nucleus', 
-        support_frac=0.6, 
-        testing_data_size=10,
-        seed=42
-    )
-
     default_setup = ExperimentSetup(
         experiment_number=0,
         support_dataset=support_dataset,
-        test_dataset=test_dataset,
         prompt_config_path=PROMPT_CONFIG_DIR / "click_prompt_generator.yml",
         prompt_config_key="click_generator",
         prompt_iterations=5,
@@ -113,7 +102,8 @@ if __name__ == "__main__":
         permutations=1,
         dice_cutoff=0.9,
         script_dir=SCRIPT_DIR,
-        should_visualize=True
+        should_visualize=True,
+        eval_holdout=3,
     )
 
     run_experiments([default_setup])
