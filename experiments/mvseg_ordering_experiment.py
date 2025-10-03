@@ -69,7 +69,7 @@ class MVSegOrderingExperiment():
         eval_all_images = []
         for permutation_index in range(self.permutations):
             print(f"Doing Perm {permutation_index}...")
-            rng = np.random.default_rng(permutation_index)
+            rng = np.random.default_rng(self.seed + permutation_index)
             shuffled_indices = rng.permutation(base_indices).tolist()
             shuffled_data = [self.support_dataset.get_item_by_data_index(index) for index in shuffled_indices]
             support_images, support_labels = zip(*shuffled_data)
@@ -89,6 +89,7 @@ class MVSegOrderingExperiment():
             all_iterations.append(per_iteration_records)
             all_images.append(per_image_records)
             test_indices = list(self.test_dataset.get_data_indices())
+
             if test_indices and context_images is not None and context_labels is not None:
                 test_data = [self.test_dataset.get_item_by_data_index(index) for index in test_indices]
                 test_images, test_labels = zip(*test_data)
@@ -107,6 +108,7 @@ class MVSegOrderingExperiment():
                 eval_image_records.to_csv(seed_folder_dir / "per_image_eval_records.csv", index=False)
                 eval_all_iterations.append(eval_iteration_records)
                 eval_all_images.append(eval_image_records)
+                
         all_iteration_results = pd.concat(all_iterations, ignore_index=True)
         all_image_results = pd.concat(all_images, ignore_index=True)
         all_iteration_results.to_csv(self.experiment_folder / "all_iteration_results.csv", index=False)
@@ -137,83 +139,120 @@ class MVSegOrderingExperiment():
 
         for index in range(images.size(0)):
             print(f"Doing Image {index+1}/{images.size(0)}...")
+
             # Image and Label: C x H x W
             image = images[index]
             label = labels[index]
             image_id = image_ids[index]
 
-            # For each image, we are doing max 20 iterations to get to 90 Dice
-            for iteration in range(self.prompt_iterations):
-                if iteration == 0:
-                    prompts = self.prompt_generator(image[None], label[None])
-                else:
-                    prompts = self.prompt_generator.subsequent_prompt(
-                            mask_pred=yhat, # shape: (B, C, H, W)
-                            prev_input=prompts,
-                            new_prompt=True
-                    )
-                
-                annotations = {k:prompts.get(k) for k in ['point_coords', 'point_labels', 'mask_input', 'scribbles', 'box']}
-                yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=True).to('cpu')
-                
-                # visualize result
-                if self.should_visualize:
-                    fig, ax = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0], width=10, 
-                    titles=['Image', 'Label', 'Prediction'])
-                    point_coords = annotations.get('point_coords')
-                    point_labels = annotations.get('point_labels')
-                    if point_coords is not None and point_labels is not None:
-                        show_points(point_coords.cpu(), point_labels.cpu(), ax=ax[0])
-                    figure_dir = seed_folder_dir / "Prediction Figures"
-                    figure_dir.mkdir(exist_ok=True)
-                    fig.savefig(figure_dir / f"Image_{index}_prediction_{iteration}.png")
-                    plt.close()
+            # Initial Dice
+            yhat = self.model.predict(image[None], context_images, context_labels, return_logits=True).to('cpu')
+            score = dice_score((yhat > 0).float(), label[None, ...])
+            initial_dice = float(score.item())
 
-                # get score for yhat
-                score = dice_score((yhat > 0).float(), label[None, ...])
-                if iteration == 0:
-                    initial_dice = float(score.item())
-
-                # get interaction stats
-                if prompts.get('point_labels', None) is not None:
-                    pos_clicks = prompts.get('point_labels').sum().item()
-                    neg_clicks = prompts.get('point_labels').shape[1] - pos_clicks
-                else:
-                    pos_clicks = neg_clicks = 0
-
-                rows.append({
-                    "experiment_seed": self.seed,
-                    "permutation_seed": ordering_index,
-                    "image_index": index,
-                    "image_id": image_id,
-                    "iteration": iteration,
-                    "commit_ground_truth": self.commit_ground_truth,
-                    "dice_cutoff": self.dice_cutoff,
-                    "pos_clicks": pos_clicks,
-                    "neg_clicks": neg_clicks,
-                    "score": float(score.item()),
-                    "prompt_limit": self.prompt_iterations,
-                })
-                if score >= self.dice_cutoff:
-                    break
-
-            final_dice = float(score.item())
-            iterations_used = iteration + 1
-            image_summary_rows.append({
+            rows.append({
                 "experiment_seed": self.seed,
                 "permutation_seed": ordering_index,
                 "image_index": index,
                 "image_id": image_id,
-                "initial_dice": initial_dice,
-                "final_dice": final_dice,
-                "iterations_used": iterations_used,
-                "reached_cutoff": final_dice >= self.dice_cutoff,
-                "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
-                "experiment_number": self.experiment_number,
-                "protocol": self.interaction_protocol,
+                "iteration": -1,
+                "commit_ground_truth": self.commit_ground_truth,
                 "dice_cutoff": self.dice_cutoff,
-                "prompt_limit": self.prompt_iterations
-            })
+                "pos_clicks": 0,
+                "neg_clicks": 0,
+                "score": float(score.item()),
+                "prompt_limit": self.prompt_iterations,
+                })
+
+            if initial_dice >= self.dice_cutoff:
+                
+                image_summary_rows.append({
+                    "experiment_seed": self.seed,
+                    "permutation_seed": ordering_index,
+                    "image_index": index,
+                    "image_id": image_id,
+                    "initial_dice": initial_dice,
+                    "final_dice": initial_dice,
+                    "iterations_used": 0,
+                    "reached_cutoff": True,
+                    "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
+                    "experiment_number": self.experiment_number,
+                    "protocol": self.interaction_protocol,
+                    "dice_cutoff": self.dice_cutoff,
+                    "prompt_limit": self.prompt_iterations
+                }) 
+            else:
+                iterations_used = 0
+                # For each image, we are doing max 20 iterations to get to dice cutoff
+                for iteration in range(self.prompt_iterations):
+                    iterations_used = iteration + 1
+                    if iteration == 0:
+                        prompts = self.prompt_generator(image[None], label[None])
+                    else:
+                        prompts = self.prompt_generator.subsequent_prompt(
+                                mask_pred=yhat, # shape: (B, C, H, W)
+                                prev_input=prompts,
+                                new_prompt=True
+                        )
+                    
+                    annotations = {k:prompts.get(k) for k in ['point_coords', 'point_labels', 'mask_input', 'scribbles', 'box']}
+                    yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=True).to('cpu')
+                    
+                    # visualize result
+                    if self.should_visualize:
+                        fig, ax = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0], width=10, 
+                        titles=['Image', 'Label', 'Prediction'])
+                        point_coords = annotations.get('point_coords')
+                        point_labels = annotations.get('point_labels')
+                        if point_coords is not None and point_labels is not None:
+                            show_points(point_coords.cpu(), point_labels.cpu(), ax=ax[0])
+                        figure_dir = seed_folder_dir / "Prediction Figures"
+                        figure_dir.mkdir(exist_ok=True)
+                        fig.savefig(figure_dir / f"Image_{index}_prediction_{iteration}.png")
+                        plt.close()
+
+                    # get score for yhat
+                    score = dice_score((yhat > 0).float(), label[None, ...])
+
+                    # get interaction stats
+                    if prompts.get('point_labels', None) is not None:
+                        pos_clicks = prompts.get('point_labels').sum().item()
+                        neg_clicks = prompts.get('point_labels').shape[1] - pos_clicks
+                    else:
+                        pos_clicks = neg_clicks = 0
+
+                    rows.append({
+                        "experiment_seed": self.seed,
+                        "permutation_seed": ordering_index,
+                        "image_index": index,
+                        "image_id": image_id,
+                        "iteration": iteration,
+                        "commit_ground_truth": self.commit_ground_truth,
+                        "dice_cutoff": self.dice_cutoff,
+                        "pos_clicks": pos_clicks,
+                        "neg_clicks": neg_clicks,
+                        "score": float(score.item()),
+                        "prompt_limit": self.prompt_iterations,
+                    })
+                    if score >= self.dice_cutoff:
+                        break
+
+                final_dice = float(score.item())
+                image_summary_rows.append({
+                    "experiment_seed": self.seed,
+                    "permutation_seed": ordering_index,
+                    "image_index": index,
+                    "image_id": image_id,
+                    "initial_dice": initial_dice,
+                    "final_dice": final_dice,
+                    "iterations_used": iterations_used,
+                    "reached_cutoff": final_dice >= self.dice_cutoff,
+                    "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
+                    "experiment_number": self.experiment_number,
+                    "protocol": self.interaction_protocol,
+                    "dice_cutoff": self.dice_cutoff,
+                    "prompt_limit": self.prompt_iterations
+                })
 
             if update_context:
                 binary_yhat = (yhat > 0).float()  # B x C x H x W
