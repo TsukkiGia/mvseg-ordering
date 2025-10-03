@@ -109,16 +109,29 @@ class MVSegOrderingExperiment():
                 eval_all_iterations.append(eval_iteration_records)
                 eval_all_images.append(eval_image_records)
                 
-        all_iteration_results = pd.concat(all_iterations, ignore_index=True)
-        all_image_results = pd.concat(all_images, ignore_index=True)
-        all_iteration_results.to_csv(self.experiment_folder / "all_iteration_results.csv", index=False)
-        all_image_results.to_csv(self.experiment_folder / "all_image_results.csv", index=False)
+        self._write_aggregate_results(
+            frames=all_iterations,
+            output_path=self.experiment_folder / "all_iteration_results.csv",
+        )
+        self._write_aggregate_results(
+            frames=all_images,
+            output_path=self.experiment_folder / "all_image_results.csv",
+        )
 
         if eval_all_iterations and eval_all_images:
-            all_eval_iteration_results = pd.concat(eval_all_iterations, ignore_index=True)
-            all_eval_image_results = pd.concat(eval_all_images, ignore_index=True)
-            all_eval_iteration_results.to_csv(self.experiment_folder / "all_iteration_eval_results.csv", index=False)
-            all_eval_image_results.to_csv(self.experiment_folder / "all_image_eval_results.csv", index=False)
+            self._write_aggregate_results(
+                frames=eval_all_iterations,
+                output_path=self.experiment_folder / "all_iteration_eval_results.csv",
+            )
+            self._write_aggregate_results(
+                frames=eval_all_images,
+                output_path=self.experiment_folder / "all_image_eval_results.csv",
+            )
+
+    def _write_aggregate_results(self, frames, output_path: Path) -> None:
+        if not frames:
+            return
+        pd.concat(frames, ignore_index=True).to_csv(output_path, index=False)
 
     def _append_iteration_record(
         self,
