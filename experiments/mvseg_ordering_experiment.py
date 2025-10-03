@@ -194,6 +194,26 @@ class MVSegOrderingExperiment():
         fig.savefig(figure_dir / f"Image_{image_index}_prediction_{iteration}.png")
         plt.close()
 
+    def _update_context(
+        self,
+        context_images: torch.Tensor,
+        context_labels: torch.Tensor,
+        image: torch.Tensor,
+        label: torch.Tensor,
+        prediction: torch.Tensor,
+    ):
+        binary_prediction = (prediction > 0).float()
+        mask_to_commit = label[None, ...] if self.commit_ground_truth else binary_prediction
+
+        if context_images is None:
+            context_images = image[None, None, ...]
+            context_labels = mask_to_commit[None, ...]
+        else:
+            context_images = torch.cat([context_images, image[None, None, ...]], dim=1)
+            context_labels = torch.cat([context_labels, mask_to_commit[None, ...]], dim=1)
+
+        return context_images, context_labels
+
     def _run_seq_common(
         self,
         images,
@@ -312,17 +332,13 @@ class MVSegOrderingExperiment():
                 )
 
             if update_context:
-                binary_yhat = (yhat > 0).float()  # B x C x H x W
-                mask_to_commit = (label[None, ...] if self.commit_ground_truth else binary_yhat)
-
-                if context_images is None:
-                    # Add a new "context axis" so final shape is (B, n, 1, H, W)
-                    context_images = image[None, None, ...]        # (1, 1, 1, H, W)
-                    context_labels = mask_to_commit[None, ...]  # (1, 1, 1, H, W)
-                else:
-                    # Append along the context dimension (dim=1)
-                    context_images = torch.cat([context_images, image[None, None, ...]], dim=1)
-                    context_labels = torch.cat([context_labels, mask_to_commit[None, ...]], dim=1)
+                context_images, context_labels = self._update_context(
+                    context_images=context_images,
+                    context_labels=context_labels,
+                    image=image,
+                    label=label,
+                    prediction=yhat,
+                )
         return (
             pd.DataFrame.from_records(rows),
             pd.DataFrame.from_records(image_summary_rows),
