@@ -172,6 +172,28 @@ class MVSegOrderingExperiment():
             "prompt_limit": self.prompt_iterations,
         })
 
+    def _visualize_data(
+        self,
+        image: torch.Tensor,
+        label: torch.Tensor,
+        prediction: torch.Tensor,
+        annotations,
+        seed_folder_dir: Path,
+        image_index: int,
+        iteration: int,
+    ) -> None:
+
+        fig, ax = ne.plot.slices([image.cpu(), label.cpu(), prediction > 0], width=10,
+                                  titles=['Image', 'Label', 'Prediction'])
+        point_coords = annotations.get('point_coords')
+        point_labels = annotations.get('point_labels')
+        if point_coords is not None and point_labels is not None:
+            show_points(point_coords.cpu(), point_labels.cpu(), ax=ax[0])
+        figure_dir = seed_folder_dir / "Prediction Figures"
+        figure_dir.mkdir(exist_ok=True)
+        fig.savefig(figure_dir / f"Image_{image_index}_prediction_{iteration}.png")
+        plt.close()
+
     def _run_seq_common(
         self,
         images,
@@ -242,18 +264,16 @@ class MVSegOrderingExperiment():
                     annotations = {k:prompts.get(k) for k in ['point_coords', 'point_labels', 'mask_input', 'scribbles', 'box']}
                     yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=True).to('cpu')
                     
-                    # visualize result
                     if self.should_visualize:
-                        fig, ax = ne.plot.slices([image.cpu(), label.cpu(), yhat > 0], width=10, 
-                        titles=['Image', 'Label', 'Prediction'])
-                        point_coords = annotations.get('point_coords')
-                        point_labels = annotations.get('point_labels')
-                        if point_coords is not None and point_labels is not None:
-                            show_points(point_coords.cpu(), point_labels.cpu(), ax=ax[0])
-                        figure_dir = seed_folder_dir / "Prediction Figures"
-                        figure_dir.mkdir(exist_ok=True)
-                        fig.savefig(figure_dir / f"Image_{index}_prediction_{iteration}.png")
-                        plt.close()
+                        self._visualize_data(
+                            image=image,
+                            label=label,
+                            prediction=yhat,
+                            annotations=annotations,
+                            seed_folder_dir=seed_folder_dir,
+                            image_index=index,
+                            iteration=iteration,
+                        )
 
                     # get score for yhat
                     score = dice_score((yhat > 0).float(), label[None, ...])
