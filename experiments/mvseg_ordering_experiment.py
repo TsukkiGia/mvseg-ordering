@@ -174,6 +174,7 @@ class MVSegOrderingExperiment():
         final_dice: float,
         iterations_used: int,
         reached_cutoff: bool,
+        context_size: int
     ) -> None:
         image_summary_rows.append({
             "experiment_seed": self.seed,
@@ -189,6 +190,7 @@ class MVSegOrderingExperiment():
             "protocol": self.interaction_protocol,
             "dice_cutoff": self.dice_cutoff,
             "prompt_limit": self.prompt_iterations,
+            "context_size": context_size
         })
 
     def _visualize_data(
@@ -355,6 +357,7 @@ class MVSegOrderingExperiment():
                     final_dice=initial_dice,
                     iterations_used=0,
                     reached_cutoff=True,
+                    context_size=context_size
                 )
             else:
                 final_dice, iterations_used, yhat = self._run_prompt_loop(
