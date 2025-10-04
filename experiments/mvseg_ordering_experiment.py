@@ -13,7 +13,7 @@ for dep in ["MultiverSeg", "UniverSeg", "ScribblePrompt"]:
         sys.path.append(str(dep_path))
 
 import neurite as ne
-from typing import Any, Sequence
+from typing import Any, Sequence, Optional
 import torch
 from .dataset.wbc_multiple_perms import WBCDataset
 from multiverseg.models.sp_mvs import MultiverSeg
@@ -83,7 +83,9 @@ class MVSegOrderingExperiment():
             support_labels = torch.stack(support_labels).to("cpu")
             seed_folder_dir =  self.experiment_folder / f"Perm_Seed_{permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
-            per_iteration_records, per_image_records, context_images, context_labels = self.run_seq_multiverseg(
+
+            # First, run the full support pass once to build the entire context and logs
+            per_iteration_records, per_image_records, full_context_images, full_context_labels = self.run_seq_multiverseg(
                 support_images,
                 support_labels,
                 shuffled_indices,
@@ -94,43 +96,40 @@ class MVSegOrderingExperiment():
             per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
             all_iterations.append(per_iteration_records)
             all_images.append(per_image_records)
-            if context_images is not None and context_labels is not None:
-                eval_data = [self.support_dataset.get_item_by_data_index(index) for index in eval_indices]
-                eval_images, eval_labels = zip(*eval_data)
-                eval_images = torch.stack(eval_images).to("cpu")
-                eval_labels = torch.stack(eval_labels).to("cpu")
-                eval_iteration_records, eval_image_records, _, _ = self.run_seq_multiverseg_eval(
-                    eval_images,
-                    eval_labels,
-                    eval_indices,
-                    permutation_index,
-                    seed_folder_dir,
-                    context_images=context_images,
-                    context_labels=context_labels,
-                )
-                eval_iteration_records.to_csv(seed_folder_dir / "per_iteration_eval_records.csv", index=False)
-                eval_image_records.to_csv(seed_folder_dir / "per_image_eval_records.csv", index=False)
-                eval_all_iterations.append(eval_iteration_records)
-                eval_all_images.append(eval_image_records)
+
+            # Evaluate held-out across context sizes using the built context
+            eval_iteration_records, eval_image_records = self._evaluate_heldout_over_context(
+                eval_indices=eval_indices,
+                permutation_index=permutation_index,
+                seed_folder_dir=seed_folder_dir,
+                full_context_images=full_context_images,
+                full_context_labels=full_context_labels,
+            )
+
+            eval_iteration_records.to_csv(seed_folder_dir / "per_iteration_eval_records.csv", index=False)
+            eval_image_records.to_csv(seed_folder_dir / "per_image_eval_records.csv", index=False)
+            eval_all_iterations.append(eval_iteration_records)
+            eval_all_images.append(eval_image_records)
                 
         self._write_aggregate_results(
             frames=all_iterations,
-            output_path=self.experiment_folder / "all_iteration_results.csv",
-        )
-        self._write_aggregate_results(
-            frames=all_images,
-            output_path=self.experiment_folder / "all_image_results.csv",
+            output_path=self.experiment_folder / "support_images_iterations.csv",
         )
 
-        if eval_all_iterations and eval_all_images:
-            self._write_aggregate_results(
-                frames=eval_all_iterations,
-                output_path=self.experiment_folder / "all_iteration_eval_results.csv",
-            )
-            self._write_aggregate_results(
-                frames=eval_all_images,
-                output_path=self.experiment_folder / "all_image_eval_results.csv",
-            )
+        self._write_aggregate_results(
+            frames=all_images,
+            output_path=self.experiment_folder / "support_images_summary.csv",
+        )
+
+        self._write_aggregate_results(
+            frames=eval_all_iterations,
+            output_path=self.experiment_folder / "held_out_images_iterations.csv",
+        )
+
+        self._write_aggregate_results(
+            frames=eval_all_images,
+            output_path=self.experiment_folder / "held_out_images_summary.csv",
+        )
 
     def _write_aggregate_results(self, frames, output_path: Path) -> None:
         if not frames:
@@ -234,6 +233,58 @@ class MVSegOrderingExperiment():
             context_labels = torch.cat([context_labels, mask_to_commit[None, ...]], dim=1)
 
         return context_images, context_labels
+
+    def _evaluate_heldout_over_context(
+        self,
+        eval_indices: Sequence[int],
+        permutation_index: int,
+        seed_folder_dir: Path,
+        full_context_images: Optional[torch.Tensor],
+        full_context_labels: Optional[torch.Tensor],
+    ):
+        # Load held-out data once
+        eval_data = [self.support_dataset.get_item_by_data_index(index) for index in eval_indices]
+        eval_images, eval_labels = zip(*eval_data)
+        eval_images = torch.stack(eval_images).to("cpu")
+        eval_labels = torch.stack(eval_labels).to("cpu")
+
+        eval_iter_all = []
+        eval_img_all = []
+
+        # Context size 0 (no support committed)
+        print("Eval for slice 0")
+        zero_context_iteration_results, zero_context_summary_results, _, _ = self.run_seq_multiverseg_eval(
+            eval_images,
+            eval_labels,
+            eval_indices,
+            permutation_index,
+            seed_folder_dir,
+            context_images=None,
+            context_labels=None,
+        )
+        eval_iter_all.append(zero_context_iteration_results)
+        eval_img_all.append(zero_context_summary_results)
+
+        context_size = 0 if full_context_images is None else len(full_context_images[0])
+        for k in range(1, context_size + 1):
+            print(f"Eval for slice {k}")
+            sliced_context_images = full_context_images[:, :k, ...]
+            sliced_context_labels = full_context_labels[:, :k, ...]
+            k_context_iteration_results, k_context_summary_results, _, _ = self.run_seq_multiverseg_eval(
+                eval_images,
+                eval_labels,
+                eval_indices,
+                permutation_index,
+                seed_folder_dir,
+                context_images=sliced_context_images,
+                context_labels=sliced_context_labels,
+            )
+            eval_iter_all.append(k_context_iteration_results)
+            eval_img_all.append(k_context_summary_results)
+
+        eval_iteration_all_df = pd.concat(eval_iter_all, ignore_index=True)
+        eval_image_all_df = pd.concat(eval_img_all, ignore_index=True)
+        return eval_iteration_all_df, eval_image_all_df
 
     def _run_prompt_loop(
         self,
@@ -381,6 +432,7 @@ class MVSegOrderingExperiment():
                     final_dice=final_dice,
                     iterations_used=iterations_used,
                     reached_cutoff=final_dice >= self.dice_cutoff,
+                    context_size=context_size,
                 )
 
             if update_context:
@@ -457,7 +509,7 @@ if __name__ == "__main__":
         prompt_generator=prompt_generator, 
         prompt_iterations=20, 
         commit_ground_truth=False, 
-        permutations=20, 
+        permutations=5, 
         dice_cutoff=0.9, 
         interaction_protocol=f"{protocol_desc}",
         experiment_number=experiment_number,
