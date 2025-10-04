@@ -3,6 +3,7 @@ os.environ['NEURITE_BACKEND'] = 'pytorch'
 
 # add MultiverSeg, UniverSeg and ScribblePrompt dependencies
 import sys
+import random
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -45,7 +46,7 @@ class MVSegOrderingExperiment():
         
         self.support_dataset = support_dataset
         self.prompt_generator = prompt_generator
-        self.model = MultiverSeg(version="v0")
+        self.model = MultiverSeg(version="v1")
         self.prompt_iterations = prompt_iterations
         self.commit_ground_truth = commit_ground_truth
         self.permutations = permutations
@@ -59,7 +60,15 @@ class MVSegOrderingExperiment():
         self.experiment_folder.mkdir(exist_ok=True)
         self.experiment_number = experiment_number
         self.should_visualize = should_visualize
+
+        # set seeds
         np.random.seed(seed)
+        random.seed(seed) 
+        np.random.seed(seed) 
+        torch.manual_seed(seed) 
+        torch.cuda.manual_seed_all(seed) 
+        torch.backends.cudnn.deterministic = True 
+        torch.backends.cudnn.benchmark = False
 
 
     def run_permutations(self):
@@ -75,7 +84,8 @@ class MVSegOrderingExperiment():
         eval_all_images = []
         for permutation_index in range(self.permutations):
             print(f"Doing Perm {permutation_index}...")
-            rng = np.random.default_rng(self.seed + permutation_index)
+            perm_gen_seed = self.seed + permutation_index
+            rng = np.random.default_rng(perm_gen_seed)
             shuffled_indices = rng.permutation(train_indices).tolist()
             shuffled_data = [self.support_dataset.get_item_by_data_index(index) for index in shuffled_indices]
             support_images, support_labels = zip(*shuffled_data)
@@ -86,11 +96,12 @@ class MVSegOrderingExperiment():
 
             # First, run the full support pass once to build the entire context and logs
             per_iteration_records, per_image_records, full_context_images, full_context_labels = self.run_seq_multiverseg(
-                support_images,
-                support_labels,
-                shuffled_indices,
-                permutation_index,
-                seed_folder_dir,
+                support_images=support_images,
+                support_labels=support_labels,
+                image_ids=shuffled_indices,
+                perm_gen_seed=perm_gen_seed,
+                ordering_index=permutation_index,
+                seed_folder_dir=seed_folder_dir,
             )
             per_iteration_records.to_csv(seed_folder_dir / "per_iteration_records.csv", index=False)
             per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
@@ -100,6 +111,7 @@ class MVSegOrderingExperiment():
             # Evaluate held-out across context sizes using the built context
             eval_iteration_records, eval_image_records = self._evaluate_heldout_over_context(
                 eval_indices=eval_indices,
+                perm_gen_seed=perm_gen_seed,
                 permutation_index=permutation_index,
                 seed_folder_dir=seed_folder_dir,
                 full_context_images=full_context_images,
@@ -139,6 +151,7 @@ class MVSegOrderingExperiment():
     def _append_iteration_record(
         self,
         rows,
+        perm_gen_seed: int,
         ordering_index: int,
         image_index: int,
         image_id: Any,
@@ -150,7 +163,8 @@ class MVSegOrderingExperiment():
     ) -> None:
         rows.append({
             "experiment_seed": self.seed,
-            "permutation_seed": ordering_index,
+            "perm_gen_seed": perm_gen_seed,
+            "permutation_index": ordering_index,
             "image_index": image_index,
             "image_id": image_id,
             "iteration": iteration,
@@ -166,6 +180,7 @@ class MVSegOrderingExperiment():
     def _append_image_summary_record(
         self,
         image_summary_rows,
+        perm_gen_seed: int,
         ordering_index: int,
         image_index: int,
         image_id: Any,
@@ -177,7 +192,8 @@ class MVSegOrderingExperiment():
     ) -> None:
         image_summary_rows.append({
             "experiment_seed": self.seed,
-            "permutation_seed": ordering_index,
+            "perm_gen_seed": perm_gen_seed,
+            "permutation_index": ordering_index,
             "image_index": image_index,
             "image_id": image_id,
             "initial_dice": initial_dice,
@@ -237,6 +253,7 @@ class MVSegOrderingExperiment():
     def _evaluate_heldout_over_context(
         self,
         eval_indices: Sequence[int],
+        perm_gen_seed: int,
         permutation_index: int,
         seed_folder_dir: Path,
         full_context_images: Optional[torch.Tensor],
@@ -254,11 +271,12 @@ class MVSegOrderingExperiment():
         # Context size 0 (no support committed)
         print("Eval for slice 0")
         zero_context_iteration_results, zero_context_summary_results, _, _ = self.run_seq_multiverseg_eval(
-            eval_images,
-            eval_labels,
-            eval_indices,
-            permutation_index,
-            seed_folder_dir,
+            test_images=eval_images,
+            test_labels=eval_labels,
+            image_ids=eval_indices,
+            perm_gen_seed=perm_gen_seed,
+            ordering_index=permutation_index,
+            seed_folder_dir=seed_folder_dir,
             context_images=None,
             context_labels=None,
         )
@@ -271,11 +289,12 @@ class MVSegOrderingExperiment():
             sliced_context_images = full_context_images[:, :k, ...]
             sliced_context_labels = full_context_labels[:, :k, ...]
             k_context_iteration_results, k_context_summary_results, _, _ = self.run_seq_multiverseg_eval(
-                eval_images,
-                eval_labels,
-                eval_indices,
-                permutation_index,
-                seed_folder_dir,
+                test_images=eval_images,
+                test_labels=eval_labels,
+                image_ids=eval_indices,
+                perm_gen_seed=perm_gen_seed,
+                ordering_index=permutation_index,
+                seed_folder_dir=seed_folder_dir,
                 context_images=sliced_context_images,
                 context_labels=sliced_context_labels,
             )
@@ -296,6 +315,7 @@ class MVSegOrderingExperiment():
         context_labels: torch.Tensor,
         yhat: torch.Tensor,
         rows,
+        perm_gen_seed: int,
         ordering_index: int,
         seed_folder_dir: Path,
     ):
@@ -340,6 +360,7 @@ class MVSegOrderingExperiment():
 
             self._append_iteration_record(
                 rows=rows,
+                perm_gen_seed=perm_gen_seed,
                 ordering_index=ordering_index,
                 image_index=image_index,
                 image_id=image_id,
@@ -360,6 +381,7 @@ class MVSegOrderingExperiment():
         images,
         labels,
         image_ids,
+        perm_gen_seed,
         ordering_index,
         seed_folder_dir,
         context_images=None,
@@ -388,6 +410,7 @@ class MVSegOrderingExperiment():
 
             self._append_iteration_record(
                 rows=rows,
+                perm_gen_seed=perm_gen_seed,
                 ordering_index=ordering_index,
                 image_index=index,
                 image_id=image_id,
@@ -401,6 +424,7 @@ class MVSegOrderingExperiment():
             if initial_dice >= self.dice_cutoff:
                 self._append_image_summary_record(
                     image_summary_rows=image_summary_rows,
+                    perm_gen_seed=perm_gen_seed,
                     ordering_index=ordering_index,
                     image_index=index,
                     image_id=image_id,
@@ -420,11 +444,13 @@ class MVSegOrderingExperiment():
                     context_labels=context_labels,
                     yhat=yhat,
                     rows=rows,
+                    perm_gen_seed=perm_gen_seed,
                     ordering_index=ordering_index,
                     seed_folder_dir=seed_folder_dir,
                 )
                 self._append_image_summary_record(
                     image_summary_rows=image_summary_rows,
+                    perm_gen_seed=perm_gen_seed,
                     ordering_index=ordering_index,
                     image_index=index,
                     image_id=image_id,
@@ -455,17 +481,19 @@ class MVSegOrderingExperiment():
         test_images,
         test_labels,
         image_ids: Sequence[int],
+        perm_gen_seed: int,
         ordering_index,
         seed_folder_dir,
         context_images=None,
         context_labels=None,
     ):
         return self._run_seq_common(
-            test_images,
-            test_labels,
-            image_ids,
-            ordering_index,
-            seed_folder_dir,
+            images=test_images,
+            labels=test_labels,
+            image_ids=image_ids,
+            perm_gen_seed=perm_gen_seed,
+            ordering_index=ordering_index,
+            seed_folder_dir=seed_folder_dir,
             context_images=context_images,
             context_labels=context_labels,
             update_context=False,
@@ -476,15 +504,17 @@ class MVSegOrderingExperiment():
         support_images,
         support_labels,
         image_ids: Sequence[int],
+        perm_gen_seed: int,
         ordering_index,
         seed_folder_dir,
     ):
         return self._run_seq_common(
-            support_images,
-            support_labels,
-            image_ids,
-            ordering_index,
-            seed_folder_dir,
+            images=support_images,
+            labels=support_labels,
+            image_ids=image_ids,
+            perm_gen_seed=perm_gen_seed,
+            ordering_index=ordering_index,
+            seed_folder_dir=seed_folder_dir,
             context_images=None,
             context_labels=None,
             update_context=True,
@@ -493,7 +523,7 @@ class MVSegOrderingExperiment():
 if __name__ == "__main__":
     script_dir = Path(__file__).resolve().parent
     train_split = 0.6
-    d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=30)
+    d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=10)
     with open(script_dir / "prompt_generator_configs/click_prompt_generator.yml", "r") as f:
         cfg = yaml.safe_load(f)
     prompt_generator_config = cfg['click_generator']
