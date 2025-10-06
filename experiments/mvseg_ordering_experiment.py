@@ -40,8 +40,7 @@ class MVSegOrderingExperiment():
         experiment_number: int,
         script_dir: Path,
         should_visualize: bool = False,
-        seed: int = 23,
-        eval_holdout: int = 1,
+        seed: int = 23
     ):
         
         self.support_dataset = support_dataset
@@ -53,7 +52,6 @@ class MVSegOrderingExperiment():
         self.dice_cutoff = dice_cutoff
         self.seed = seed
         self.interaction_protocol = interaction_protocol
-        self.eval_holdout = eval_holdout
         results_dir = script_dir / "results"
         results_dir.mkdir(exist_ok=True)
         self.experiment_folder = results_dir / f"Experiment_{experiment_number}"
@@ -64,24 +62,15 @@ class MVSegOrderingExperiment():
         # set seeds
         np.random.seed(seed)
         random.seed(seed) 
-        np.random.seed(seed) 
         torch.manual_seed(seed) 
-        torch.cuda.manual_seed_all(seed) 
         torch.backends.cudnn.deterministic = True 
         torch.backends.cudnn.benchmark = False
 
 
     def run_permutations(self):
-        base_indices = list(self.support_dataset.get_data_indices())
-        if len(base_indices) <= self.eval_holdout:
-            raise ValueError("Support dataset must contain more samples than the eval holdout size.")
-
-        eval_indices = base_indices[:self.eval_holdout]
-        train_indices = base_indices[self.eval_holdout:]
+        train_indices = list(self.support_dataset.get_data_indices())
         all_iterations = []
         all_images = []
-        eval_all_iterations = []
-        eval_all_images = []
         for permutation_index in range(self.permutations):
             print(f"Doing Perm {permutation_index}...")
             perm_gen_seed = self.seed + permutation_index
@@ -94,8 +83,8 @@ class MVSegOrderingExperiment():
             seed_folder_dir =  self.experiment_folder / f"Perm_Seed_{permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
 
-            # First, run the full support pass once to build the entire context and logs
-            per_iteration_records, per_image_records, full_context_images, full_context_labels = self.run_seq_multiverseg(
+            # Run the full support pass once to build the entire context and logs
+            per_iteration_records, per_image_records = self.run_seq_multiverseg(
                 support_images=support_images,
                 support_labels=support_labels,
                 image_ids=shuffled_indices,
@@ -107,21 +96,6 @@ class MVSegOrderingExperiment():
             per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
             all_iterations.append(per_iteration_records)
             all_images.append(per_image_records)
-
-            # Evaluate held-out across context sizes using the built context
-            eval_iteration_records, eval_image_records = self._evaluate_heldout_over_context(
-                eval_indices=eval_indices,
-                perm_gen_seed=perm_gen_seed,
-                permutation_index=permutation_index,
-                seed_folder_dir=seed_folder_dir,
-                full_context_images=full_context_images,
-                full_context_labels=full_context_labels,
-            )
-
-            eval_iteration_records.to_csv(seed_folder_dir / "per_iteration_eval_records.csv", index=False)
-            eval_image_records.to_csv(seed_folder_dir / "per_image_eval_records.csv", index=False)
-            eval_all_iterations.append(eval_iteration_records)
-            eval_all_images.append(eval_image_records)
                 
         self._write_aggregate_results(
             frames=all_iterations,
@@ -131,16 +105,6 @@ class MVSegOrderingExperiment():
         self._write_aggregate_results(
             frames=all_images,
             output_path=self.experiment_folder / "support_images_summary.csv",
-        )
-
-        self._write_aggregate_results(
-            frames=eval_all_iterations,
-            output_path=self.experiment_folder / "held_out_images_iterations.csv",
-        )
-
-        self._write_aggregate_results(
-            frames=eval_all_images,
-            output_path=self.experiment_folder / "held_out_images_summary.csv",
         )
 
     def _write_aggregate_results(self, frames, output_path: Path) -> None:
@@ -270,7 +234,7 @@ class MVSegOrderingExperiment():
 
         # Context size 0 (no support committed)
         print("Eval for slice 0")
-        zero_context_iteration_results, zero_context_summary_results, _, _ = self.run_seq_multiverseg_eval(
+        zero_context_iteration_results, zero_context_summary_results = self.run_seq_multiverseg_eval(
             test_images=eval_images,
             test_labels=eval_labels,
             image_ids=eval_indices,
@@ -288,7 +252,7 @@ class MVSegOrderingExperiment():
             print(f"Eval for slice {k}")
             sliced_context_images = full_context_images[:, :k, ...]
             sliced_context_labels = full_context_labels[:, :k, ...]
-            k_context_iteration_results, k_context_summary_results, _, _ = self.run_seq_multiverseg_eval(
+            k_context_iteration_results, k_context_summary_results = self.run_seq_multiverseg_eval(
                 test_images=eval_images,
                 test_labels=eval_labels,
                 image_ids=eval_indices,
@@ -472,8 +436,6 @@ class MVSegOrderingExperiment():
         return (
             pd.DataFrame.from_records(rows),
             pd.DataFrame.from_records(image_summary_rows),
-            context_images,
-            context_labels,
         )
     
     def run_seq_multiverseg_eval(
@@ -523,7 +485,7 @@ class MVSegOrderingExperiment():
 if __name__ == "__main__":
     script_dir = Path(__file__).resolve().parent
     train_split = 0.6
-    d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=10)
+    d_support = WBCDataset('JTSC', split='support', label='nucleus', support_frac=train_split, testing_data_size=15)
     with open(script_dir / "prompt_generator_configs/click_prompt_generator.yml", "r") as f:
         cfg = yaml.safe_load(f)
     prompt_generator_config = cfg['click_generator']
@@ -544,8 +506,7 @@ if __name__ == "__main__":
         interaction_protocol=f"{protocol_desc}",
         experiment_number=experiment_number,
         script_dir=script_dir,
-        should_visualize=False,
-        eval_holdout=3,
+        should_visualize=False
     )
     experiment.run_permutations()
 

@@ -29,7 +29,6 @@ class ExperimentSetup:
     script_dir: Path
     should_visualize: bool
     seed: int = 23
-    eval_holdout: int = 1
 
 def load_prompt_generator(config_path: Path, key: str):
     """Return (prompt_generator, protocol_description)."""
@@ -65,7 +64,6 @@ def run_experiment(setup: ExperimentSetup):
         seed=setup.seed,
         script_dir=setup.script_dir,
         should_visualize=setup.should_visualize,
-        eval_holdout=setup.eval_holdout,
     )
     experiment.run_permutations()
 
@@ -99,7 +97,6 @@ if __name__ == "__main__":
         dice_cutoff=0.9,
         script_dir=SCRIPT_DIR,
         should_visualize=True,
-        eval_holdout=3,
     )
 
     run_experiments([default_setup])

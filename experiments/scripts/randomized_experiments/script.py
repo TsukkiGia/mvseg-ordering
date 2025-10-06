@@ -11,22 +11,21 @@ if __name__ == "__main__":
         split="support",
         label="nucleus",
         support_frac=0.6,
-        testing_data_size=30,
+        testing_data_size=100,
         seed=42,
     )
     # 100 - 200 perms
     default_setup = ExperimentSetup(
-        experiment_number=0,
+        experiment_number=2,
         support_dataset=support_dataset,
         prompt_config_path=PROMPT_CONFIG_DIR / "click_prompt_generator.yml",
         prompt_config_key="click_generator",
         prompt_iterations=20,
         commit_ground_truth=False,
-        permutations=10,
+        permutations=100,
         dice_cutoff=0.9,
         script_dir=experiment_root,
         should_visualize=False,
-        eval_holdout=1,
     )
 
     run_experiments([default_setup])
