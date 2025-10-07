@@ -37,7 +37,6 @@ class MVSegOrderingExperiment():
         permutations: int,
         dice_cutoff: float,
         interaction_protocol: str,
-        experiment_number: int,
         script_dir: Path,
         should_visualize: bool = False,
         seed: int = 23
@@ -52,11 +51,8 @@ class MVSegOrderingExperiment():
         self.dice_cutoff = dice_cutoff
         self.seed = seed
         self.interaction_protocol = interaction_protocol
-        results_dir = script_dir / "results"
-        results_dir.mkdir(exist_ok=True)
-        self.experiment_folder = results_dir / f"Experiment_{experiment_number}"
-        self.experiment_folder.mkdir(exist_ok=True)
-        self.experiment_number = experiment_number
+        self.results_dir = script_dir / "results"
+        self.results_dir.mkdir(exist_ok=True)
         self.should_visualize = should_visualize
 
         # set seeds
@@ -80,7 +76,7 @@ class MVSegOrderingExperiment():
             support_images, support_labels = zip(*shuffled_data)
             support_images = torch.stack(support_images).to("cpu")
             support_labels = torch.stack(support_labels).to("cpu")
-            seed_folder_dir =  self.experiment_folder / f"Perm_Seed_{permutation_index}"
+            seed_folder_dir =  self.results_dir / f"Perm_Seed_{permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
 
             # Run the full support pass once to build the entire context and logs
@@ -99,12 +95,12 @@ class MVSegOrderingExperiment():
                 
         self._write_aggregate_results(
             frames=all_iterations,
-            output_path=self.experiment_folder / "support_images_iterations.csv",
+            output_path=self.results_dir / "support_images_iterations.csv",
         )
 
         self._write_aggregate_results(
             frames=all_images,
-            output_path=self.experiment_folder / "support_images_summary.csv",
+            output_path=self.results_dir / "support_images_summary.csv",
         )
 
     def _write_aggregate_results(self, frames, output_path: Path) -> None:
@@ -165,7 +161,6 @@ class MVSegOrderingExperiment():
             "iterations_used": iterations_used,
             "reached_cutoff": reached_cutoff,
             "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
-            "experiment_number": self.experiment_number,
             "protocol": self.interaction_protocol,
             "dice_cutoff": self.dice_cutoff,
             "prompt_limit": self.prompt_iterations,
@@ -495,7 +490,6 @@ if __name__ == "__main__":
         f"{prompt_generator_config.get('init_neg_click', 0)}_init_neg,"
         f"{prompt_generator_config.get('correction_clicks', 0)}_corrections"
     )
-    experiment_number = 0
     experiment = MVSegOrderingExperiment(
         support_dataset=d_support, 
         prompt_generator=prompt_generator, 
@@ -504,7 +498,6 @@ if __name__ == "__main__":
         permutations=5, 
         dice_cutoff=0.9, 
         interaction_protocol=f"{protocol_desc}",
-        experiment_number=experiment_number,
         script_dir=script_dir,
         should_visualize=False
     )

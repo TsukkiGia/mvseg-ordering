@@ -1,9 +1,12 @@
 """Utility helpers to run MVSeg ordering experiments and plot their results."""
-from pathlib import Path
-from typing import Any, Sequence
 
-from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional, Sequence
+
+from dataclasses import dataclass, replace
 import yaml
+import numpy as np
+import pandas as pd
 
 from .analysis.results_plot import plot_experiment_results
 from .dataset.wbc_multiple_perms import WBCDataset
@@ -13,12 +16,12 @@ from pylot.experiment.util import eval_config
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROMPT_CONFIG_DIR = SCRIPT_DIR / "prompt_generator_configs"
+SUBSET_SEED_STRIDE = 1000
 
 
 @dataclass(frozen=True)
 class ExperimentSetup:
     """Bundled configuration for a single experiment run."""
-    experiment_number: int
     support_dataset: Any
     prompt_config_path: Path
     prompt_config_key: str
@@ -29,6 +32,24 @@ class ExperimentSetup:
     script_dir: Path
     should_visualize: bool
     seed: int = 23
+    subset_count: Optional[int] = None
+    subset_size: Optional[int] = None
+    aggregate_subset_metrics: bool = True
+
+
+class _SubsetDataset:
+    """Lightweight view over a base dataset restricted to selected indices."""
+
+    def __init__(self, base: WBCDataset, indices: Sequence[int]):
+        self._base = base
+        self._indices = list(indices)
+
+    def get_data_indices(self) -> list[int]:
+        return list(self._indices)
+
+    def get_item_by_data_index(self, data_idx: int):
+        return self._base.get_item_by_data_index(data_idx)
+
 
 def load_prompt_generator(config_path: Path, key: str):
     """Return (prompt_generator, protocol_description)."""
@@ -44,8 +65,52 @@ def load_prompt_generator(config_path: Path, key: str):
     return prompt_generator, protocol_desc
 
 
-def run_experiment(setup: ExperimentSetup):
-    print(f"Running experiment {setup.experiment_number}...")
+def sample_disjoint_subsets(indices: Sequence[int], subset_count: int, subset_size: int, seed: int) -> list[list[int]]:
+    rng = np.random.default_rng(seed)
+    permuted = rng.permutation(indices).tolist()
+    subsets: list[list[int]] = []
+    for i in range(subset_count):
+        start = i * subset_size
+        end = start + subset_size
+        if end > len(permuted):
+            break
+        subsets.append(permuted[start:end])
+    return subsets
+
+
+def aggregate_subset_results(root: Path) -> None:
+    frames = []
+    for subset_dir in sorted(root.glob("Subset_*")):
+        subset_name = subset_dir.name
+        try:
+            subset_index = int(subset_name.split("_")[-1])
+        except ValueError:
+            subset_index = subset_name
+        results_dir = subset_dir / "results"
+        summary_path = results_dir / "support_images_summary.csv"
+        if not summary_path.exists():
+            continue
+
+        df = pd.read_csv(summary_path)
+        if df.empty:
+            continue
+
+        df_copy = df.copy()
+        df_copy.insert(0, "subset_index", subset_index)
+        frames.append(df_copy)
+
+    if not frames:
+        print("[plan_b] No subset results found; skipping aggregation.")
+        return
+
+    aggregated = pd.concat(frames, ignore_index=True)
+    out_path = root / "subset_support_images_summary.csv"
+    aggregated.to_csv(out_path, index=False)
+    print(f"[plan_b] Wrote concatenated subset summaries to {out_path}")
+
+
+def run_single_experiment(setup: ExperimentSetup) -> None:
+    print(f"Running experiment...")
     support_dataset = setup.support_dataset
 
     prompt_generator, interaction_protocol = load_prompt_generator(
@@ -60,15 +125,54 @@ def run_experiment(setup: ExperimentSetup):
         permutations=setup.permutations,
         dice_cutoff=setup.dice_cutoff,
         interaction_protocol=interaction_protocol,
-        experiment_number=setup.experiment_number,
         seed=setup.seed,
         script_dir=setup.script_dir,
         should_visualize=setup.should_visualize,
     )
     experiment.run_permutations()
 
-    print(f"Plotting results for experiment {setup.experiment_number}...")
-    plot_experiment_results(setup.experiment_number, setup.script_dir)
+    print(f"Plotting results for experiment...")
+    plot_experiment_results(setup.script_dir)
+
+
+def run_experiment(setup: ExperimentSetup):
+    subset_count = setup.subset_count
+    subset_size = setup.subset_size
+    is_plan_b = subset_count is not None or subset_size is not None
+    plan_label = "B" if is_plan_b else "A"
+    plan_root = setup.script_dir / plan_label
+    plan_root.mkdir(parents=True, exist_ok=True)
+
+    if is_plan_b:
+        if subset_count is None or subset_size is None:
+            raise ValueError("Both subset_count and subset_size must be provided for Plan B runs.")
+        if subset_count <= 0 or subset_size <= 0:
+            raise ValueError("subset_count and subset_size must be positive integers.")
+
+        plan_b_root = plan_root
+        base_dataset = setup.support_dataset
+        all_indices = list(base_dataset.get_data_indices())
+        subsets = sample_disjoint_subsets(
+            all_indices, subset_count, subset_size, setup.seed
+        )
+
+        for subset_idx, subset_indices in enumerate(subsets):
+            subset_dir = plan_b_root / f"Subset_{subset_idx}"
+            subset_dir.mkdir(parents=True, exist_ok=True)
+            subset_dataset = _SubsetDataset(base_dataset, subset_indices)
+            subset_setup = replace(
+                setup,
+                support_dataset=subset_dataset,
+                script_dir=subset_dir,
+                seed=setup.seed + SUBSET_SEED_STRIDE * subset_idx,
+                subset_count=None,
+                subset_size=None,
+            )
+            run_single_experiment(subset_setup)
+        aggregate_subset_results(plan_b_root)
+    else:
+        plan_a_setup = replace(setup, script_dir=plan_root)
+        run_single_experiment(plan_a_setup)
 
 
 def run_experiments(experiments: Sequence[ExperimentSetup]):
@@ -87,7 +191,6 @@ if __name__ == "__main__":
     )
 
     default_setup = ExperimentSetup(
-        experiment_number=0,
         support_dataset=support_dataset,
         prompt_config_path=PROMPT_CONFIG_DIR / "click_prompt_generator.yml",
         prompt_config_key="click_generator",

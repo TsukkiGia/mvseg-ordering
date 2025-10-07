@@ -15,17 +15,30 @@ if __name__ == "__main__":
         seed=42,
     )
     # 100 - 200 perms
-    default_setup = ExperimentSetup(
-        experiment_number=2,
+    Plan_A = ExperimentSetup(
         support_dataset=support_dataset,
         prompt_config_path=PROMPT_CONFIG_DIR / "click_prompt_generator.yml",
         prompt_config_key="click_generator",
         prompt_iterations=20,
         commit_ground_truth=False,
-        permutations=100,
+        permutations=2,
         dice_cutoff=0.9,
         script_dir=experiment_root,
         should_visualize=False,
     )
 
-    run_experiments([default_setup])
+    Plan_B = ExperimentSetup(
+        support_dataset=support_dataset,
+        prompt_config_path=PROMPT_CONFIG_DIR / "click_prompt_generator.yml",
+        prompt_config_key="click_generator",
+        prompt_iterations=20,
+        commit_ground_truth=False,
+        permutations=2,
+        dice_cutoff=0.9,
+        script_dir=experiment_root,
+        should_visualize=False,
+        subset_count=5,
+        subset_size=20
+    )
+
+    run_experiments([Plan_A, Plan_B])
