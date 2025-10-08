@@ -131,9 +131,6 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
     )
     experiment.run_permutations()
 
-    print(f"Plotting results for experiment...")
-    plot_experiment_results(setup.script_dir)
-
 
 def run_experiment(setup: ExperimentSetup):
     subset_count = setup.subset_count
@@ -173,6 +170,7 @@ def run_experiment(setup: ExperimentSetup):
     else:
         plan_a_setup = replace(setup, script_dir=plan_root)
         run_single_experiment(plan_a_setup)
+    plot_experiment_results(plan_root)
 
 
 def run_experiments(experiments: Sequence[ExperimentSetup]):

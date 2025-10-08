@@ -11,7 +11,7 @@ if __name__ == "__main__":
         split="support",
         label="nucleus",
         support_frac=0.6,
-        testing_data_size=100,
+        testing_data_size=50,
         seed=42,
     )
     # 100 - 200 perms
@@ -21,7 +21,7 @@ if __name__ == "__main__":
         prompt_config_key="click_generator",
         prompt_iterations=20,
         commit_ground_truth=False,
-        permutations=2,
+        permutations=100,
         dice_cutoff=0.9,
         script_dir=experiment_root,
         should_visualize=False,
@@ -33,7 +33,7 @@ if __name__ == "__main__":
         prompt_config_key="click_generator",
         prompt_iterations=20,
         commit_ground_truth=False,
-        permutations=2,
+        permutations=100,
         dice_cutoff=0.9,
         script_dir=experiment_root,
         should_visualize=False,
