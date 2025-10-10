@@ -1,5 +1,6 @@
 """Utility helpers to run MVSeg ordering experiments and plot their results."""
 
+import argparse
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -172,13 +173,56 @@ def run_experiment(setup: ExperimentSetup):
         run_single_experiment(plan_a_setup)
     plot_experiment_results(plan_root)
 
-
-def run_experiments(experiments: Sequence[ExperimentSetup]):
-    for setup in experiments:
-        run_experiment(setup)
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run MVSeg ordering experiments with configurable parameters.",
+    )
+    parser.add_argument(
+        "--prompt-config-path",
+        type=Path,
+        default=PROMPT_CONFIG_DIR / "click_prompt_generator.yml",
+        help="Path to the prompt generator configuration YAML.",
+    )
+    parser.add_argument(
+        "--prompt-config-key",
+        type=str,
+        default="click_generator",
+        help="Key to select the prompt generator within the configuration file.",
+    )
+    parser.add_argument("--prompt-iterations", type=int, default=5, help="Maximum interactive prompt iterations.")
+    parser.add_argument(
+        "--commit-ground-truth",
+        action="store_true",
+        help="Commit ground-truth labels during context updates.",
+    )
+    parser.add_argument("--permutations", type=int, default=1, help="Number of permutations to evaluate.")
+    parser.add_argument("--dice-cutoff", type=float, default=0.9, help="Dice threshold for early stopping.")
+    parser.add_argument(
+        "--experiment-seed",
+        type=int,
+        default=23,
+        help="Master seed used by MVSegOrderingExperiment.",
+    )
+    parser.add_argument(
+        "--script-dir",
+        type=Path,
+        default=SCRIPT_DIR,
+        help="Directory where experiment artifacts and results are stored.",
+    )
+    parser.add_argument("--subset-count", type=int, default=None, help="Number of subsets for Plan B style runs.")
+    parser.add_argument("--subset-size", type=int, default=None, help="Subset size for Plan B style runs.")
+    parser.add_argument(
+        "--no-visualize",
+        dest="should_visualize",
+        action="store_false",
+        help="Disable saving visualization figures during runs.",
+    )
+    parser.set_defaults(should_visualize=False)
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
+    args = parse_args()
     support_dataset = WBCDataset(
         dataset="JTSC",
         split="support",
@@ -190,14 +234,17 @@ if __name__ == "__main__":
 
     default_setup = ExperimentSetup(
         support_dataset=support_dataset,
-        prompt_config_path=PROMPT_CONFIG_DIR / "click_prompt_generator.yml",
-        prompt_config_key="click_generator",
-        prompt_iterations=5,
-        commit_ground_truth=False,
-        permutations=1,
-        dice_cutoff=0.9,
-        script_dir=SCRIPT_DIR,
-        should_visualize=True,
+        prompt_config_path=args.prompt_config_path,
+        prompt_config_key=args.prompt_config_key,
+        prompt_iterations=args.prompt_iterations,
+        commit_ground_truth=args.commit_ground_truth,
+        permutations=args.permutations,
+        dice_cutoff=args.dice_cutoff,
+        script_dir=args.script_dir,
+        should_visualize=args.should_visualize,
+        seed=args.experiment_seed,
+        subset_count=args.subset_count,
+        subset_size=args.subset_size,
     )
 
-    run_experiments([default_setup])
+    run_experiment(default_setup)
