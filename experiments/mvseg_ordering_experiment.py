@@ -39,12 +39,20 @@ class MVSegOrderingExperiment():
         interaction_protocol: str,
         script_dir: Path,
         should_visualize: bool = False,
-        seed: int = 23
+        seed: int = 23,
+        device: Optional[torch.device] = None,
     ):
-        
+        if device is not None:
+            resolved_device = torch.device(device)
+        elif torch.cuda.is_available():
+            resolved_device = torch.device("cuda")
+        else:
+            resolved_device = torch.device("cpu")
+
         self.support_dataset = support_dataset
         self.prompt_generator = prompt_generator
-        self.model = MultiverSeg(version="v1")
+        self.device = resolved_device
+        self.model = MultiverSeg(version="v1", device=self.device)
         self.prompt_iterations = prompt_iterations
         self.commit_ground_truth = commit_ground_truth
         self.permutations = permutations
@@ -63,11 +71,13 @@ class MVSegOrderingExperiment():
         torch.backends.cudnn.benchmark = False
 
 
-    def run_permutations(self):
+    def run_permutations(self, permutation_indices: Optional[list[int]] = None):
         train_indices = list(self.support_dataset.get_data_indices())
         all_iterations = []
         all_images = []
-        for permutation_index in range(self.permutations):
+        target_permutations = list(range(self.permutations)) if permutation_indices is None else permutation_indices
+
+        for permutation_index in target_permutations:
             print(f"Doing Perm {permutation_index}...")
             perm_gen_seed = self.seed + permutation_index
             rng = np.random.default_rng(perm_gen_seed)
