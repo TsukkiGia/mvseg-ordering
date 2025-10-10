@@ -1,14 +1,16 @@
 """Utility helpers to run MVSeg ordering experiments and plot their results."""
 
 import argparse
+import math
+import multiprocessing as mp
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from dataclasses import dataclass, replace
+import torch
 import yaml
 import numpy as np
 import pandas as pd
-import math
 
 from .analysis.results_plot import plot_experiment_results
 from .dataset.wbc_multiple_perms import WBCDataset
@@ -112,6 +114,21 @@ def aggregate_subset_results(root: Path) -> None:
     aggregated.to_csv(out_path, index=False)
     print(f"[plan_b] Wrote concatenated subset summaries to {out_path}")
 
+
+def resolve_shard_device(base_device: str, shard_id: int) -> str:
+    if base_device != "cuda":
+        return base_device
+
+    if not torch.cuda.is_available():
+        return "cpu"
+
+    total_gpus = torch.cuda.device_count()
+    if total_gpus == 0:
+        return "cpu"
+
+    target_index = (shard_id) % total_gpus
+    return f"cuda:{target_index}"
+
 def merge_shard_results(target_dir: Path, shard_dirs: Sequence[Path]) -> None:
     target_results_dir = target_dir / "results"
     target_results_dir.mkdir(parents=True, exist_ok=True)
@@ -130,14 +147,38 @@ def merge_shard_results(target_dir: Path, shard_dirs: Sequence[Path]) -> None:
             merged = pd.concat(frames, ignore_index=True)
             merged.to_csv(target_results_dir / filename, index=False)
 
-def run_single_experiment(setup: ExperimentSetup) -> None:
-    print(f"Running experiment...")
-    support_dataset = setup.support_dataset
+
+def run_shard_worker(shard_dir: str, shard_indices: Sequence[int], setup: ExperimentSetup, shard_id: int) -> None:
+    shard_path = Path(shard_dir)
+    shard_path.mkdir(parents=True, exist_ok=True)
 
     prompt_generator, interaction_protocol = load_prompt_generator(
         setup.prompt_config_path, setup.prompt_config_key
     )
+
+    experiment = MVSegOrderingExperiment(
+        support_dataset=setup.support_dataset,
+        prompt_generator=prompt_generator,
+        prompt_iterations=setup.prompt_iterations,
+        commit_ground_truth=setup.commit_ground_truth,
+        permutations=setup.permutations,
+        dice_cutoff=setup.dice_cutoff,
+        interaction_protocol=interaction_protocol,
+        seed=setup.seed,
+        script_dir=shard_path,
+        should_visualize=setup.should_visualize,
+        device=resolve_shard_device(setup.device, shard_id),
+    )
+    experiment.run_permutations(list(shard_indices))
+
+def run_single_experiment(setup: ExperimentSetup) -> None:
+    print(f"Running experiment...")
+    support_dataset = setup.support_dataset
+
     if setup.shards <= 1:
+        prompt_generator, interaction_protocol = load_prompt_generator(
+            setup.prompt_config_path, setup.prompt_config_key
+        )
         experiment = MVSegOrderingExperiment(
             support_dataset=support_dataset,
             prompt_generator=prompt_generator,
@@ -157,28 +198,25 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
     permutation_indices = list(range(setup.permutations))
     shard_size = math.ceil(len(permutation_indices) / setup.shards)
     shard_dirs: list[Path] = []
+    processes: list[mp.Process] = []
     for shard_id in range(setup.shards):
         start = shard_id * shard_size
         end = min((shard_id + 1) * shard_size, len(permutation_indices))
         shard_indices = permutation_indices[start:end]
+        if not shard_indices:
+            continue
         shard_dir = setup.script_dir / f"Shard_{shard_id}"
-        shard_dir.mkdir(parents=True, exist_ok=True)
         shard_dirs.append(shard_dir)
 
-        experiment = MVSegOrderingExperiment(
-            support_dataset=support_dataset,
-            prompt_generator=prompt_generator,
-            prompt_iterations=setup.prompt_iterations,
-            commit_ground_truth=setup.commit_ground_truth,
-            permutations=setup.permutations,
-            dice_cutoff=setup.dice_cutoff,
-            interaction_protocol=interaction_protocol,
-            seed=setup.seed,
-            script_dir=shard_dir,
-            should_visualize=setup.should_visualize,
-            device=setup.device
+        proc = mp.Process(
+            target=run_shard_worker,
+            args=(str(shard_dir), shard_indices, setup, shard_id),
         )
-        experiment.run_permutations(shard_indices)
+        proc.start()
+        processes.append(proc)
+
+    for proc in processes:
+        proc.join()
 
     merge_shard_results(setup.script_dir, shard_dirs)
 
