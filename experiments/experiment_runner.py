@@ -228,7 +228,6 @@ if __name__ == "__main__":
         split="support",
         label="nucleus",
         support_frac=0.6,
-        testing_data_size=10,
         seed=42,
     )
 
