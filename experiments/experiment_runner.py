@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 import yaml
 import numpy as np
 import pandas as pd
+import math
 
 from .analysis.results_plot import plot_experiment_results
 from .dataset.wbc_multiple_perms import WBCDataset
@@ -36,6 +37,7 @@ class ExperimentSetup:
     subset_count: Optional[int] = None
     subset_size: Optional[int] = None
     aggregate_subset_metrics: bool = True
+    shards: int = 1
 
 
 class _SubsetDataset:
@@ -109,6 +111,23 @@ def aggregate_subset_results(root: Path) -> None:
     aggregated.to_csv(out_path, index=False)
     print(f"[plan_b] Wrote concatenated subset summaries to {out_path}")
 
+def merge_shard_results(target_dir: Path, shard_dirs: Sequence[Path]) -> None:
+    target_results_dir = target_dir / "results"
+    target_results_dir.mkdir(parents=True, exist_ok=True)
+    files_to_merge = [
+        "support_images_iterations.csv",
+        "support_images_summary.csv",
+    ]
+
+    for filename in files_to_merge:
+        frames = []
+        for shard_dir in shard_dirs:
+            shard_file = shard_dir / "results" / filename
+            if shard_file.exists():
+                frames.append(pd.read_csv(shard_file))
+        if frames:
+            merged = pd.concat(frames, ignore_index=True)
+            merged.to_csv(target_results_dir / filename, index=False)
 
 def run_single_experiment(setup: ExperimentSetup) -> None:
     print(f"Running experiment...")
@@ -117,20 +136,48 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
     prompt_generator, interaction_protocol = load_prompt_generator(
         setup.prompt_config_path, setup.prompt_config_key
     )
+    if setup.shards <= 1:
+        experiment = MVSegOrderingExperiment(
+            support_dataset=support_dataset,
+            prompt_generator=prompt_generator,
+            prompt_iterations=setup.prompt_iterations,
+            commit_ground_truth=setup.commit_ground_truth,
+            permutations=setup.permutations,
+            dice_cutoff=setup.dice_cutoff,
+            interaction_protocol=interaction_protocol,
+            seed=setup.seed,
+            script_dir=setup.script_dir,
+            should_visualize=setup.should_visualize,
+        )
+        experiment.run_permutations()
+        return
 
-    experiment = MVSegOrderingExperiment(
-        support_dataset=support_dataset,
-        prompt_generator=prompt_generator,
-        prompt_iterations=setup.prompt_iterations,
-        commit_ground_truth=setup.commit_ground_truth,
-        permutations=setup.permutations,
-        dice_cutoff=setup.dice_cutoff,
-        interaction_protocol=interaction_protocol,
-        seed=setup.seed,
-        script_dir=setup.script_dir,
-        should_visualize=setup.should_visualize,
-    )
-    experiment.run_permutations()
+    permutation_indices = list(range(setup.permutations))
+    shard_size = math.ceil(len(permutation_indices) / setup.shards)
+    shard_dirs: list[Path] = []
+    for shard_id in range(setup.shards):
+        start = shard_id * shard_size
+        end = min((shard_id + 1) * shard_size, len(permutation_indices))
+        shard_indices = permutation_indices[start:end]
+        shard_dir = setup.script_dir / f"Shard_{shard_id}"
+        shard_dir.mkdir(parents=True, exist_ok=True)
+        shard_dirs.append(shard_dir)
+
+        experiment = MVSegOrderingExperiment(
+            support_dataset=support_dataset,
+            prompt_generator=prompt_generator,
+            prompt_iterations=setup.prompt_iterations,
+            commit_ground_truth=setup.commit_ground_truth,
+            permutations=setup.permutations,
+            dice_cutoff=setup.dice_cutoff,
+            interaction_protocol=interaction_protocol,
+            seed=setup.seed,
+            script_dir=shard_dir,
+            should_visualize=setup.should_visualize,
+        )
+        experiment.run_permutations(shard_indices)
+
+    merge_shard_results(setup.script_dir, shard_dirs)
 
 def run_plan_B(setup: ExperimentSetup):
     subset_count = setup.subset_count
@@ -162,11 +209,10 @@ def run_plan_B(setup: ExperimentSetup):
 def run_experiment(setup: ExperimentSetup):
     subset_count = setup.subset_count
     subset_size = setup.subset_size
-    is_plan_b = subset_count is not None or subset_size is not None
+    is_plan_b = subset_count is not None and subset_size is not None
     
     if is_plan_b:
         run_plan_B(setup)
-        plot_experiment_results(plan_root)
     else:
         plan_root = setup.script_dir / "A"
         plan_root.mkdir(parents=True, exist_ok=True)
@@ -218,6 +264,7 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="Disable saving visualization figures during runs.",
     )
+    parser.add_argument('--shards', type=int, default=1, help="How many shards to run the different set of permutations")
     parser.set_defaults(should_visualize=False)
     return parser.parse_args()
 
@@ -229,6 +276,7 @@ if __name__ == "__main__":
         split="support",
         label="nucleus",
         support_frac=0.6,
+        testing_data_size=10,
         seed=42,
     )
 
@@ -245,6 +293,7 @@ if __name__ == "__main__":
         seed=args.experiment_seed,
         subset_count=args.subset_count,
         subset_size=args.subset_size,
+        shards=args.shards
     )
 
     run_experiment(default_setup)
