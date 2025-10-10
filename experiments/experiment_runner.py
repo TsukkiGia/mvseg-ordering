@@ -38,6 +38,7 @@ class ExperimentSetup:
     subset_size: Optional[int] = None
     aggregate_subset_metrics: bool = True
     shards: int = 1
+    device: str = "cpu"
 
 
 class _SubsetDataset:
@@ -148,6 +149,7 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
             seed=setup.seed,
             script_dir=setup.script_dir,
             should_visualize=setup.should_visualize,
+            device=setup.device
         )
         experiment.run_permutations()
         return
@@ -174,6 +176,7 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
             seed=setup.seed,
             script_dir=shard_dir,
             should_visualize=setup.should_visualize,
+            device=setup.device
         )
         experiment.run_permutations(shard_indices)
 
@@ -265,6 +268,7 @@ def parse_args() -> argparse.Namespace:
         help="Disable saving visualization figures during runs.",
     )
     parser.add_argument('--shards', type=int, default=1, help="How many shards to run the different set of permutations")
+    parser.add_argument('--device', type=str, default="cpu", help="What device to run on")
     parser.set_defaults(should_visualize=False)
     return parser.parse_args()
 
@@ -293,7 +297,8 @@ if __name__ == "__main__":
         seed=args.experiment_seed,
         subset_count=args.subset_count,
         subset_size=args.subset_size,
-        shards=args.shards
+        shards=args.shards,
+        device=args.device
     )
 
     run_experiment(default_setup)

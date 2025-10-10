@@ -84,8 +84,8 @@ class MVSegOrderingExperiment():
             shuffled_indices = rng.permutation(train_indices).tolist()
             shuffled_data = [self.support_dataset.get_item_by_data_index(index) for index in shuffled_indices]
             support_images, support_labels = zip(*shuffled_data)
-            support_images = torch.stack(support_images).to("cpu")
-            support_labels = torch.stack(support_labels).to("cpu")
+            support_images = torch.stack(support_images).to(self.device)
+            support_labels = torch.stack(support_labels).to(self.device)
             seed_folder_dir =  self.results_dir / f"Perm_Seed_{permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
 
@@ -188,12 +188,12 @@ class MVSegOrderingExperiment():
         iteration: int,
     ) -> None:
 
-        fig, ax = ne.plot.slices([image.cpu(), label.cpu(), prediction > 0], width=10,
+        fig, ax = ne.plot.slices([image.detach().cpu(), label.detach().cpu(), (prediction > 0).detach().cpu()], width=10,
                                   titles=['Image', 'Label', 'Prediction'])
         point_coords = annotations.get('point_coords')
         point_labels = annotations.get('point_labels')
         if point_coords is not None and point_labels is not None:
-            show_points(point_coords.cpu(), point_labels.cpu(), ax=ax[0])
+            show_points(point_coords.detach().cpu(), point_labels.detach().cpu(), ax=ax[0])
         figure_dir = seed_folder_dir / "Prediction Figures"
         figure_dir.mkdir(exist_ok=True)
         fig.savefig(figure_dir / f"Image_{image_index}_prediction_{iteration}.png")
@@ -231,8 +231,8 @@ class MVSegOrderingExperiment():
         # Load held-out data once
         eval_data = [self.support_dataset.get_item_by_data_index(index) for index in eval_indices]
         eval_images, eval_labels = zip(*eval_data)
-        eval_images = torch.stack(eval_images).to("cpu")
-        eval_labels = torch.stack(eval_labels).to("cpu")
+        eval_images = torch.stack(eval_images).to(self.device)
+        eval_labels = torch.stack(eval_labels).to(self.device)
 
         eval_iter_all = []
         eval_img_all = []
@@ -305,7 +305,7 @@ class MVSegOrderingExperiment():
                 )
 
             annotations = {k: prompts.get(k) for k in ['point_coords', 'point_labels', 'mask_input', 'scribbles', 'box']}
-            yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=True).to('cpu')
+            yhat = self.model.predict(image[None], context_images, context_labels, **annotations, return_logits=True).to(self.device)
 
             if self.should_visualize:
                 self._visualize_data(
@@ -372,7 +372,7 @@ class MVSegOrderingExperiment():
             image_id = image_ids[index]
 
             # Initial Dice
-            yhat = self.model.predict(image[None], context_images, context_labels, return_logits=True).to('cpu')
+            yhat = self.model.predict(image[None], context_images, context_labels, return_logits=True).to(self.device)
             score = dice_score((yhat > 0).float(), label[None, ...])
             initial_dice = float(score.item())
             context_size = 0 if context_images is None else len(context_images[0])
