@@ -132,46 +132,47 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
     )
     experiment.run_permutations()
 
+def run_plan_B(setup: ExperimentSetup):
+    subset_count = setup.subset_count
+    subset_size = setup.subset_size
+    plan_b_root = setup.script_dir / "B"
+    plan_b_root.mkdir(parents=True, exist_ok=True)
+
+    base_dataset = setup.support_dataset
+    all_indices = list(base_dataset.get_data_indices())
+    subsets = sample_disjoint_subsets(
+        all_indices, subset_count, subset_size, setup.seed
+    )
+
+    for subset_idx, subset_indices in enumerate(subsets):
+        subset_dir = plan_b_root / f"Subset_{subset_idx}"
+        subset_dir.mkdir(parents=True, exist_ok=True)
+        subset_dataset = _SubsetDataset(base_dataset, subset_indices)
+        subset_setup = replace(
+            setup,
+            support_dataset=subset_dataset,
+            script_dir=subset_dir,
+            seed=setup.seed + SUBSET_SEED_STRIDE * subset_idx,
+            subset_count=None,
+            subset_size=None,
+        )
+        run_single_experiment(subset_setup)
+    aggregate_subset_results(plan_b_root)
 
 def run_experiment(setup: ExperimentSetup):
     subset_count = setup.subset_count
     subset_size = setup.subset_size
     is_plan_b = subset_count is not None or subset_size is not None
-    plan_label = "B" if is_plan_b else "A"
-    plan_root = setup.script_dir / plan_label
-    plan_root.mkdir(parents=True, exist_ok=True)
-
+    
     if is_plan_b:
-        if subset_count is None or subset_size is None:
-            raise ValueError("Both subset_count and subset_size must be provided for Plan B runs.")
-        if subset_count <= 0 or subset_size <= 0:
-            raise ValueError("subset_count and subset_size must be positive integers.")
-
-        plan_b_root = plan_root
-        base_dataset = setup.support_dataset
-        all_indices = list(base_dataset.get_data_indices())
-        subsets = sample_disjoint_subsets(
-            all_indices, subset_count, subset_size, setup.seed
-        )
-
-        for subset_idx, subset_indices in enumerate(subsets):
-            subset_dir = plan_b_root / f"Subset_{subset_idx}"
-            subset_dir.mkdir(parents=True, exist_ok=True)
-            subset_dataset = _SubsetDataset(base_dataset, subset_indices)
-            subset_setup = replace(
-                setup,
-                support_dataset=subset_dataset,
-                script_dir=subset_dir,
-                seed=setup.seed + SUBSET_SEED_STRIDE * subset_idx,
-                subset_count=None,
-                subset_size=None,
-            )
-            run_single_experiment(subset_setup)
-        aggregate_subset_results(plan_b_root)
+        run_plan_B(setup)
+        plot_experiment_results(plan_root)
     else:
+        plan_root = setup.script_dir / "A"
+        plan_root.mkdir(parents=True, exist_ok=True)
         plan_a_setup = replace(setup, script_dir=plan_root)
         run_single_experiment(plan_a_setup)
-    plot_experiment_results(plan_root)
+        plot_experiment_results(plan_root)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
