@@ -69,7 +69,10 @@ class WBCDataset(Dataset):
         T = torch.from_numpy
         self._data = [(T(x)[None], T(y)) for x, y in load_folder(path)]
         if self.testing_data_size:
-            self._data = self._data[:self.testing_data_size]
+            total_samples = len(self._data)
+            rng = np.random.default_rng(self.seed)
+            keep_indices = rng.choice(total_samples, size=self.testing_data_size, replace=False)
+            self._data = [self._data[i] for i in keep_indices]
         if self.label is not None:
             self._ilabel = {"cytoplasm": 1, "nucleus": 2, "background": 0}[self.label]
         self._idxs = self._split_indexes()
