@@ -53,6 +53,7 @@ class MVSegOrderingExperiment():
         self.prompt_generator = prompt_generator
         self.device = resolved_device
         self.model = MultiverSeg(version="v1", device=self.device)
+        self.model.eval()
         self.prompt_iterations = prompt_iterations
         self.commit_ground_truth = commit_ground_truth
         self.permutations = permutations

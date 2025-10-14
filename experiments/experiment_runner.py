@@ -37,9 +37,7 @@ class ExperimentSetup:
     script_dir: Path
     should_visualize: bool
     seed: int = 23
-    subset_count: Optional[int] = None
     subset_size: Optional[int] = None
-    aggregate_subset_metrics: bool = True
     shards: int = 1
     device: str = "cpu"
 
@@ -72,10 +70,11 @@ def load_prompt_generator(config_path: Path, key: str):
     return prompt_generator, protocol_desc
 
 
-def sample_disjoint_subsets(indices: Sequence[int], subset_count: int, subset_size: int, seed: int) -> list[list[int]]:
+def sample_disjoint_subsets(indices: Sequence[int], subset_size: int, seed: int) -> list[list[int]]:
     rng = np.random.default_rng(seed)
     permuted = rng.permutation(indices).tolist()
     subsets: list[list[int]] = []
+    subset_count = math.floor(len(indices)/subset_size)
     for i in range(subset_count):
         start = i * subset_size
         end = start + subset_size
@@ -222,7 +221,6 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
     merge_shard_results(setup.script_dir, shard_dirs)
 
 def run_plan_B(setup: ExperimentSetup):
-    subset_count = setup.subset_count
     subset_size = setup.subset_size
     plan_b_root = setup.script_dir / "B"
     plan_b_root.mkdir(parents=True, exist_ok=True)
@@ -230,7 +228,7 @@ def run_plan_B(setup: ExperimentSetup):
     base_dataset = setup.support_dataset
     all_indices = list(base_dataset.get_data_indices())
     subsets = sample_disjoint_subsets(
-        all_indices, subset_count, subset_size, setup.seed
+        all_indices, subset_size, setup.seed
     )
 
     for subset_idx, subset_indices in enumerate(subsets):
@@ -242,16 +240,14 @@ def run_plan_B(setup: ExperimentSetup):
             support_dataset=subset_dataset,
             script_dir=subset_dir,
             seed=setup.seed + SUBSET_SEED_STRIDE * subset_idx,
-            subset_count=None,
             subset_size=None,
         )
         run_single_experiment(subset_setup)
     aggregate_subset_results(plan_b_root)
 
 def run_experiment(setup: ExperimentSetup):
-    subset_count = setup.subset_count
     subset_size = setup.subset_size
-    is_plan_b = subset_count is not None and subset_size is not None
+    is_plan_b = subset_size is not None
     
     if is_plan_b:
         run_plan_B(setup)
@@ -298,7 +294,6 @@ def parse_args() -> argparse.Namespace:
         default=SCRIPT_DIR,
         help="Directory where experiment artifacts and results are stored.",
     )
-    parser.add_argument("--subset-count", type=int, default=None, help="Number of subsets for Plan B style runs.")
     parser.add_argument("--subset-size", type=int, default=None, help="Subset size for Plan B style runs.")
     parser.add_argument(
         "--no-visualize",
@@ -319,7 +314,6 @@ if __name__ == "__main__":
         split="support",
         label="nucleus",
         support_frac=0.6,
-        testing_data_size=20,
         seed=42,
     )
 
@@ -334,7 +328,6 @@ if __name__ == "__main__":
         script_dir=args.script_dir,
         should_visualize=args.should_visualize,
         seed=args.experiment_seed,
-        subset_count=args.subset_count,
         subset_size=args.subset_size,
         shards=args.shards,
         device=args.device
