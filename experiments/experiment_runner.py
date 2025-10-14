@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from dataclasses import dataclass, replace
+import os
+os.environ.pop("CUDA_VISIBLE_DEVICES", None)
 import torch
 import yaml
 import numpy as np
@@ -16,7 +18,6 @@ from .analysis.results_plot import plot_experiment_results
 from .dataset.wbc_multiple_perms import WBCDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
 from pylot.experiment.util import eval_config
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROMPT_CONFIG_DIR = SCRIPT_DIR / "prompt_generator_configs"
@@ -318,7 +319,7 @@ if __name__ == "__main__":
         split="support",
         label="nucleus",
         support_frac=0.6,
-        testing_data_size=10,
+        testing_data_size=20,
         seed=42,
     )
 
