@@ -1,4 +1,6 @@
 import os
+
+from experiments.dataset.mega_medical_dataset import MegaMedicalDataset
 os.environ['NEURITE_BACKEND'] = 'pytorch'
 
 # add MultiverSeg, UniverSeg and ScribblePrompt dependencies
@@ -25,12 +27,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from scribbleprompt.analysis.plot import show_points
+from typing import Union
+DatasetType = Union[WBCDataset, MegaMedicalDataset]
 
 
 class MVSegOrderingExperiment():
     def __init__(
         self,
-        support_dataset: WBCDataset,
+        support_dataset: DatasetType,
         prompt_generator: Any,
         prompt_iterations: int,
         commit_ground_truth: bool,

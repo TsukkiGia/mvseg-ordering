@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Literal
 from torch.utils.data import Dataset
-import torch
 import numpy as np
 from experiments.dataset.multisegment2d import MultiBinarySegment2D
 import os
@@ -45,9 +44,9 @@ class MegaMedicalDataset(Dataset):
         if self.dataset_size and self.dataset_size <= len(self._data):
             total_samples = len(self._data)
             rng = np.random.default_rng(self.seed)
-            keep_indices = rng.choice(total_samples, size=self.dataset_size, replace=False)
-            self._data = [self._data[i] for i in keep_indices]
-        self._idxs = self._split_indexes()
+            self.indices = rng.choice(total_samples, size=self.dataset_size, replace=False)
+        else:
+            self.indices = self._split_indexes()
 
     def _split_indexes(self):
         rng = np.random.default_rng(self.seed)
@@ -56,15 +55,16 @@ class MegaMedicalDataset(Dataset):
         return p
 
     def __len__(self):
-        return len(self._idxs)
+        return len(self.indices)
 
     def __getitem__(self, idx):
-        return self._data[self._idxs[idx]]
+        return self._data[self.indices[idx]]
     
     def get_item_by_data_index(self, data_idx: int):
         """Return an item using the underlying dataset index."""
+        if data_idx not in self.indices:
+            raise ValueError("index out of bounds")
         return self._data[data_idx]
     
     def get_data_indices(self):
-        return self._idxs
-
+        return self.indices
