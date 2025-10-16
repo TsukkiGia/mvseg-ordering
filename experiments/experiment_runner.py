@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from .dataset.wbc_multiple_perms import WBCDataset
+from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
 from pylot.experiment.util import eval_config
 
@@ -301,19 +302,78 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument('--shards', type=int, default=1, help="How many shards to run the different set of permutations")
     parser.add_argument('--device', type=str, default="cpu", help="What device to run on")
+    parser.add_argument(
+        "--use-mega-dataset",
+        action="store_true",
+        help="Use the MegaMedicalDataset instead of the default WBCDataset.",
+    )
+    parser.add_argument(
+        "--mega-target-index",
+        type=int,
+        default=None,
+        help="Index key within MultiBinarySegment2D.target_datasets to load.",
+    )
+    parser.add_argument(
+        "--mega-task",
+        type=str,
+        default=None,
+        help="Task identifier (dataset/group/modality/axis) for MegaMedical lookup.",
+    )
+    parser.add_argument(
+        "--mega-label",
+        type=int,
+        default=None,
+        help="Label index for MegaMedical lookup.",
+    )
+    parser.add_argument(
+        "--mega-slicing",
+        type=str,
+        default=None,
+        choices=["midslice", "maxslice"],
+        help="Slicing mode for MegaMedical lookup.",
+    )
+    parser.add_argument(
+        "--mega-dataset-size",
+        type=int,
+        default=50,
+        help="Optional number of samples to subsample from the MegaMedical dataset.",
+    )
     parser.set_defaults(should_visualize=False)
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.use_mega_dataset:
+        query = (args.mega_task, args.mega_label, args.mega_slicing)
+        if any(v is not None for v in query) and not all(v is not None for v in query):
+            parser.error(
+                "Provide task, label, and slicing together for MegaMedical lookup, or omit all three."
+            )
+        if all(v is None for v in query) and args.mega_target_index is None:
+            parser.error(
+                "Provide --mega-target-index or a full task/label/slicing triple when using MegaMedicalDataset."
+            )
+    return args
 
 
 if __name__ == "__main__":
     args = parse_args()
-    support_dataset = WBCDataset(
-        dataset="JTSC",
-        split="support",
-        label="nucleus",
-        support_frac=0.6,
-        seed=42,
-    )
+    if args.use_mega_dataset:
+        support_dataset = MegaMedicalDataset(
+            dataset_target=args.mega_target_index,
+            task=args.mega_task,
+            label=args.mega_label,
+            slicing=args.mega_slicing,
+            split="train",
+            seed=args.experiment_seed,
+            dataset_size=args.mega_dataset_size,
+        )
+    else:
+        support_dataset = WBCDataset(
+            dataset="JTSC",
+            split="support",
+            label="nucleus",
+            support_frac=0.6,
+            seed=42,
+        )
 
     default_setup = ExperimentSetup(
         support_dataset=support_dataset,
