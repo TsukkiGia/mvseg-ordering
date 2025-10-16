@@ -14,7 +14,6 @@ import yaml
 import numpy as np
 import pandas as pd
 
-from .analysis.results_plot import plot_experiment_results
 from .dataset.wbc_multiple_perms import WBCDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
 from pylot.experiment.util import eval_config
@@ -256,7 +255,6 @@ def run_experiment(setup: ExperimentSetup):
         plan_root.mkdir(parents=True, exist_ok=True)
         plan_a_setup = replace(setup, script_dir=plan_root)
         run_single_experiment(plan_a_setup)
-        plot_experiment_results(plan_root)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
