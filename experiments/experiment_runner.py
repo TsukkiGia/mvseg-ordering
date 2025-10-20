@@ -87,6 +87,7 @@ def sample_disjoint_subsets(indices: Sequence[int], subset_size: int, seed: int)
 
 def aggregate_subset_results(root: Path) -> None:
     frames = []
+    eval_frames = []
     for subset_dir in sorted(root.glob("Subset_*")):
         subset_name = subset_dir.name
         try:
@@ -95,6 +96,7 @@ def aggregate_subset_results(root: Path) -> None:
             subset_index = subset_name
         results_dir = subset_dir / "results"
         summary_path = results_dir / "support_images_summary.csv"
+        eval_summary_path = results_dir / "eval_image_summary.csv"
         if not summary_path.exists():
             continue
 
@@ -106,6 +108,13 @@ def aggregate_subset_results(root: Path) -> None:
         df_copy.insert(0, "subset_index", subset_index)
         frames.append(df_copy)
 
+        if eval_summary_path.exists():
+            eval_df = pd.read_csv(eval_summary_path)
+            if not eval_df.empty:
+                eval_copy = eval_df.copy()
+                eval_copy.insert(0, "subset_index", subset_index)
+                eval_frames.append(eval_copy)
+
     if not frames:
         print("[plan_b] No subset results found; skipping aggregation.")
         return
@@ -114,6 +123,12 @@ def aggregate_subset_results(root: Path) -> None:
     out_path = root / "subset_support_images_summary.csv"
     aggregated.to_csv(out_path, index=False)
     print(f"[plan_b] Wrote concatenated subset summaries to {out_path}")
+
+    if eval_frames:
+        eval_aggregated = pd.concat(eval_frames, ignore_index=True)
+        eval_out_path = root / "subset_eval_image_summary.csv"
+        eval_aggregated.to_csv(eval_out_path, index=False)
+        print(f"[plan_b] Wrote concatenated subset eval summaries to {eval_out_path}")
 
 
 def resolve_shard_device(base_device: str, shard_id: int) -> str:
@@ -136,6 +151,8 @@ def merge_shard_results(target_dir: Path, shard_dirs: Sequence[Path]) -> None:
     files_to_merge = [
         "support_images_iterations.csv",
         "support_images_summary.csv",
+        "eval_iterations.csv",
+        "eval_image_summary.csv",
     ]
 
     for filename in files_to_merge:
@@ -382,6 +399,7 @@ if __name__ == "__main__":
             label="nucleus",
             support_frac=0.6,
             seed=42,
+            testing_data_size=50
         )
 
     default_setup = ExperimentSetup(
