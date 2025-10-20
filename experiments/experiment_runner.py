@@ -39,6 +39,7 @@ class ExperimentSetup:
     seed: int = 23
     subset_size: Optional[int] = None
     eval_fraction: float = None
+    eval_checkpoints: Optional[list[int]] = None
     shards: int = 1
     device: str = "cpu"
 
@@ -186,7 +187,8 @@ def run_shard_worker(shard_dir: str, shard_indices: Sequence[int], setup: Experi
         script_dir=shard_path,
         should_visualize=setup.should_visualize,
         device=resolve_shard_device(setup.device, shard_id),
-        eval_fraction=setup.eval_fraction
+        eval_fraction=setup.eval_fraction,
+        eval_checkpoints=setup.eval_checkpoints,
     )
     experiment.run_permutations(list(shard_indices))
 
@@ -210,7 +212,8 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
             script_dir=setup.script_dir,
             should_visualize=setup.should_visualize,
             device=setup.device,
-            eval_fraction=setup.eval_fraction
+            eval_fraction=setup.eval_fraction,
+            eval_checkpoints=setup.eval_checkpoints,
         )
         experiment.run_permutations()
         return
@@ -362,7 +365,14 @@ def parse_args() -> argparse.Namespace:
         "--eval_fraction",
         type=float,
         default=None,
-        help="What percentage of the dataset should be used to eval indices"
+        help="Fraction (0-1] of the dataset to reserve for evaluation."
+    )
+    parser.add_argument(
+        "--eval-checkpoints",
+        type=int,
+        nargs='+',
+        default=None,
+        help="Specific context sizes k to evaluate (e.g., --eval-checkpoints 5 10 20)."
     )
     parser.set_defaults(should_visualize=True)
     args = parser.parse_args()
@@ -416,7 +426,8 @@ if __name__ == "__main__":
         subset_size=args.subset_size,
         shards=args.shards,
         device=args.device,
-        eval_fraction=args.eval_fraction
+        eval_fraction=args.eval_fraction,
+        eval_checkpoints=args.eval_checkpoints
     )
 
     run_experiment(default_setup)

@@ -30,6 +30,7 @@ import pandas as pd
 from scribbleprompt.analysis.plot import show_points
 from typing import Union
 DatasetType = Union[WBCDataset, MegaMedicalDataset]
+DEFAULT_EVAL_STEP = 5
 
 
 class MVSegOrderingExperiment():
@@ -46,7 +47,8 @@ class MVSegOrderingExperiment():
         should_visualize: bool = False,
         seed: int = 23,
         device: Optional[torch.device] = None,
-        eval_fraction: float = 0.1,
+        eval_fraction: Optional[float] = 0.1,
+        eval_checkpoints: Optional[Sequence[int]] = None,
     ):
         if device is not None:
             resolved_device = torch.device(device)
@@ -69,7 +71,20 @@ class MVSegOrderingExperiment():
         self.results_dir = script_dir / "results"
         self.results_dir.mkdir(exist_ok=True)
         self.should_visualize = should_visualize
-        self.eval_fraction = eval_fraction
+        if eval_fraction is not None:
+            if not (0 < eval_fraction <= 1):
+                raise ValueError("eval_fraction must be in the interval (0, 1].")
+            self.eval_fraction = float(eval_fraction)
+        else:
+            self.eval_fraction = None
+
+        if eval_checkpoints is not None:
+            checkpoints = sorted({int(k) for k in eval_checkpoints if int(k) > 0})
+            if not checkpoints:
+                raise ValueError("eval_checkpoints must contain at least one positive integer.")
+            self.eval_checkpoints = checkpoints
+        else:
+            self.eval_checkpoints = None
 
         # set seeds
         np.random.seed(seed)
@@ -92,11 +107,16 @@ class MVSegOrderingExperiment():
         support_indices = train_indices
         eval_indices: list[int] = []
         if self.eval_fraction is not None:
-            eval_count = math.ceil(len(train_indices) * self.eval_fraction)
+            eval_count = max(1, math.ceil(len(train_indices) * self.eval_fraction))
             rng_eval = np.random.default_rng(self.seed)
             eval_indices = rng_eval.choice(train_indices, size=eval_count, replace=False).tolist()
             eval_index_set = set(eval_indices)
             support_indices = [idx for idx in train_indices if idx not in eval_index_set]
+            if not support_indices:
+                raise ValueError(
+                    "Evaluation split consumed all available support samples. "
+                    "Reduce eval_fraction or provide a larger dataset."
+                )
 
         for permutation_index in target_permutations:
             print(f"Doing Perm {permutation_index}...")
@@ -137,6 +157,7 @@ class MVSegOrderingExperiment():
                     seed_folder_dir=seed_folder_dir,
                     full_context_images=full_context_images,
                     full_context_labels=full_context_labels,
+                    context_steps=self.eval_checkpoints,
                 )
                 eval_dir = seed_folder_dir / "eval"
                 eval_dir.mkdir(exist_ok=True)
@@ -280,6 +301,7 @@ class MVSegOrderingExperiment():
         seed_folder_dir: Path,
         full_context_images: Optional[torch.Tensor],
         full_context_labels: Optional[torch.Tensor],
+        context_steps: Optional[Sequence[int]] = None,
     ):
         # Load held-out data once
         eval_data = [self.support_dataset.get_item_by_data_index(index) for index in eval_indices]
@@ -306,7 +328,12 @@ class MVSegOrderingExperiment():
         eval_img_all.append(zero_context_summary_results)
 
         context_size = 0 if full_context_images is None else len(full_context_images[0])
-        for k in range(5, context_size + 1, 5):
+        eval_steps = context_steps if context_steps is not None \
+            else list(range(DEFAULT_EVAL_STEP, context_size + 1, DEFAULT_EVAL_STEP))
+        if eval_steps[-1] != context_size:
+            eval_steps.append(context_size)
+
+        for k in eval_steps:
             print(f"Eval for slice {k}")
             sliced_context_images = full_context_images[:, :k, ...]
             sliced_context_labels = full_context_labels[:, :k, ...]
