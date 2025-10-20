@@ -38,6 +38,7 @@ class ExperimentSetup:
     should_visualize: bool
     seed: int = 23
     subset_size: Optional[int] = None
+    eval_fraction: float = None
     shards: int = 1
     device: str = "cpu"
 
@@ -168,6 +169,7 @@ def run_shard_worker(shard_dir: str, shard_indices: Sequence[int], setup: Experi
         script_dir=shard_path,
         should_visualize=setup.should_visualize,
         device=resolve_shard_device(setup.device, shard_id),
+        eval_fraction=setup.eval_fraction
     )
     experiment.run_permutations(list(shard_indices))
 
@@ -190,7 +192,8 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
             seed=setup.seed,
             script_dir=setup.script_dir,
             should_visualize=setup.should_visualize,
-            device=setup.device
+            device=setup.device,
+            eval_fraction=setup.eval_fraction
         )
         experiment.run_permutations()
         return
@@ -338,7 +341,13 @@ def parse_args() -> argparse.Namespace:
         default=50,
         help="Optional number of samples to subsample from the MegaMedical dataset.",
     )
-    parser.set_defaults(should_visualize=False)
+    parser.add_argument(
+        "--eval_fraction",
+        type=float,
+        default=None,
+        help="What percentage of the dataset should be used to eval indices"
+    )
+    parser.set_defaults(should_visualize=True)
     args = parser.parse_args()
 
     if args.use_mega_dataset:
@@ -388,7 +397,8 @@ if __name__ == "__main__":
         seed=args.experiment_seed,
         subset_size=args.subset_size,
         shards=args.shards,
-        device=args.device
+        device=args.device,
+        eval_fraction=args.eval_fraction
     )
 
     run_experiment(default_setup)

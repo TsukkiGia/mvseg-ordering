@@ -1,4 +1,5 @@
 import os
+import math
 
 from experiments.dataset.mega_medical_dataset import MegaMedicalDataset
 os.environ['NEURITE_BACKEND'] = 'pytorch'
@@ -45,6 +46,7 @@ class MVSegOrderingExperiment():
         should_visualize: bool = False,
         seed: int = 23,
         device: Optional[torch.device] = None,
+        eval_fraction: float = 0.1,
     ):
         if device is not None:
             resolved_device = torch.device(device)
@@ -67,6 +69,7 @@ class MVSegOrderingExperiment():
         self.results_dir = script_dir / "results"
         self.results_dir.mkdir(exist_ok=True)
         self.should_visualize = should_visualize
+        self.eval_fraction = eval_fraction
 
         # set seeds
         np.random.seed(seed)
@@ -78,24 +81,42 @@ class MVSegOrderingExperiment():
 
     def run_permutations(self, permutation_indices: Optional[list[int]] = None):
         train_indices = list(self.support_dataset.get_data_indices())
+
         all_iterations = []
         all_images = []
+        all_eval_iterations = []
+        all_eval_images = []
+
         target_permutations = list(range(self.permutations)) if permutation_indices is None else permutation_indices
+
+        support_indices = train_indices
+        eval_indices: list[int] = []
+        if self.eval_fraction is not None:
+            eval_count = math.ceil(len(train_indices) * self.eval_fraction)
+            rng_eval = np.random.default_rng(self.seed)
+            eval_indices = rng_eval.choice(train_indices, size=eval_count, replace=False).tolist()
+            eval_index_set = set(eval_indices)
+            support_indices = [idx for idx in train_indices if idx not in eval_index_set]
 
         for permutation_index in target_permutations:
             print(f"Doing Perm {permutation_index}...")
             perm_gen_seed = self.seed + permutation_index
             rng = np.random.default_rng(perm_gen_seed)
-            shuffled_indices = rng.permutation(train_indices).tolist()
+            shuffled_indices = rng.permutation(support_indices).tolist()
             shuffled_data = [self.support_dataset.get_item_by_data_index(index) for index in shuffled_indices]
             support_images, support_labels = zip(*shuffled_data)
             support_images = torch.stack(support_images).to(self.device)
             support_labels = torch.stack(support_labels).to(self.device)
-            seed_folder_dir =  self.results_dir / f"Perm_Seed_{permutation_index}"
+            seed_folder_dir = self.results_dir / f"Perm_Seed_{permutation_index}"
             seed_folder_dir.mkdir(exist_ok=True)
 
             # Run the full support pass once to build the entire context and logs
-            per_iteration_records, per_image_records = self.run_seq_multiverseg(
+            (
+                per_iteration_records,
+                per_image_records,
+                full_context_images,
+                full_context_labels,
+            ) = self.run_seq_multiverseg(
                 support_images=support_images,
                 support_labels=support_labels,
                 image_ids=shuffled_indices,
@@ -107,7 +128,23 @@ class MVSegOrderingExperiment():
             per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
             all_iterations.append(per_iteration_records)
             all_images.append(per_image_records)
-                
+
+            if self.eval_fraction is not None and eval_indices:
+                eval_iteration_df, eval_image_df = self._evaluate_heldout_over_context(
+                    eval_indices=eval_indices,
+                    perm_gen_seed=perm_gen_seed,
+                    permutation_index=permutation_index,
+                    seed_folder_dir=seed_folder_dir,
+                    full_context_images=full_context_images,
+                    full_context_labels=full_context_labels,
+                )
+                eval_dir = seed_folder_dir / "eval"
+                eval_dir.mkdir(exist_ok=True)
+                eval_iteration_df.to_csv(eval_dir / "eval_iteration_records.csv", index=False)
+                eval_image_df.to_csv(eval_dir / "eval_image_records.csv", index=False)
+                all_eval_iterations.append(eval_iteration_df)
+                all_eval_images.append(eval_image_df)
+
         self._write_aggregate_results(
             frames=all_iterations,
             output_path=self.results_dir / "support_images_iterations.csv",
@@ -117,6 +154,17 @@ class MVSegOrderingExperiment():
             frames=all_images,
             output_path=self.results_dir / "support_images_summary.csv",
         )
+
+        if all_eval_iterations:
+            self._write_aggregate_results(
+                frames=all_eval_iterations,
+                output_path=self.results_dir / "eval_iterations.csv",
+            )
+        if all_eval_images:
+            self._write_aggregate_results(
+                frames=all_eval_images,
+                output_path=self.results_dir / "eval_image_summary.csv",
+            )
 
     def _write_aggregate_results(self, frames, output_path: Path) -> None:
         if not frames:
@@ -258,7 +306,7 @@ class MVSegOrderingExperiment():
         eval_img_all.append(zero_context_summary_results)
 
         context_size = 0 if full_context_images is None else len(full_context_images[0])
-        for k in range(1, context_size + 1):
+        for k in range(5, context_size + 1, 5):
             print(f"Eval for slice {k}")
             sliced_context_images = full_context_images[:, :k, ...]
             sliced_context_labels = full_context_labels[:, :k, ...]
@@ -361,6 +409,7 @@ class MVSegOrderingExperiment():
         context_images=None,
         context_labels=None,
         update_context=False,
+        return_context=False,
     ):
         # N x C x H x W for the provided images and labels
         rows = []
@@ -443,10 +492,17 @@ class MVSegOrderingExperiment():
                     label=label,
                     prediction=yhat,
                 )
-        return (
-            pd.DataFrame.from_records(rows),
-            pd.DataFrame.from_records(image_summary_rows),
-        )
+        iteration_df = pd.DataFrame.from_records(rows)
+        image_df = pd.DataFrame.from_records(image_summary_rows)
+
+        if return_context:
+            return (
+                iteration_df,
+                image_df,
+                context_images,
+                context_labels,
+            )
+        return iteration_df, image_df
     
     def run_seq_multiverseg_eval(
         self,
@@ -490,6 +546,7 @@ class MVSegOrderingExperiment():
             context_images=None,
             context_labels=None,
             update_context=True,
+            return_context=True,
         )
 
 if __name__ == "__main__":
