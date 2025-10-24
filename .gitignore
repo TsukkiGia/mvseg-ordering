@@ -7,3 +7,5 @@ UniverSeg/
 experiments/**/results/
 experiments/**/results/
 experiments/**/results/**
+tmux*
+interview.ipynb
