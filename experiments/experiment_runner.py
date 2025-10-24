@@ -17,6 +17,7 @@ import pandas as pd
 from .dataset.wbc_multiple_perms import WBCDataset
 from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
+from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -216,6 +217,7 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
             eval_checkpoints=setup.eval_checkpoints,
         )
         experiment.run_permutations()
+        generate_plan_a_outputs(setup.script_dir / "results")
         return
 
     permutation_indices = list(range(setup.permutations))
@@ -242,6 +244,7 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
         proc.join()
 
     merge_shard_results(setup.script_dir, shard_dirs)
+    generate_plan_a_outputs(setup.script_dir / "results")
 
 def run_plan_B(setup: ExperimentSetup):
     subset_size = setup.subset_size
@@ -267,6 +270,7 @@ def run_plan_B(setup: ExperimentSetup):
         )
         run_single_experiment(subset_setup)
     aggregate_subset_results(plan_b_root)
+    generate_plan_b_outputs(plan_b_root)
 
 def run_experiment(setup: ExperimentSetup):
     subset_size = setup.subset_size
@@ -408,8 +412,7 @@ if __name__ == "__main__":
             split="support",
             label="nucleus",
             support_frac=0.6,
-            seed=42,
-            testing_data_size=50
+            seed=42
         )
 
     default_setup = ExperimentSetup(
