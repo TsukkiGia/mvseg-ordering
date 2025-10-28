@@ -23,6 +23,15 @@ METRIC_LABELS = {
     "iterations_used": "Prompt Iterations Used",
 }
 
+# Simple style/tick constants
+SKY = "skyblue"
+EDGE = "black"
+ERR = "navy"
+
+DICE_TICK = 0.01
+AVG_ITER_TICK = 0.2
+TOTAL_ITER_TICK = 10.0
+
 
 def _dynamic_ylim(
     ax,
@@ -57,8 +66,11 @@ def _dynamic_ylim(
     # Choose tick step if requested
     if (tick_step is None or tick_step == 0) and max_ticks:
         span_for_ticks = max(y1 - y0, 1e-9)
-        # Nice steps to try (descending so we pick the coarsest that satisfies max_ticks)
-        nice = [1.0, 0.5, 0.25, 0.2, 0.1, 0.05, 0.02, 0.01]
+        # Nice steps to try (ascending so we pick the finest that still yields ≤ max_ticks)
+        nice = [
+            0.001, 0.002, 0.005, 0.01, 0.02,
+            0.05, 0.1, 0.2, 0.25, 0.5, 1.0,
+        ]
         for step in nice:
             if span_for_ticks / step <= max_ticks:
                 tick_step = step
@@ -215,6 +227,209 @@ def plot_permutation_metric_histogram(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+# -------------------------
+# Plan C helpers (de-dup)
+# -------------------------
+
+def compute_ctx_perm(df: pd.DataFrame, metric: str, reducer: PermutationReducer) -> pd.DataFrame:
+    """Aggregate to per-permutation values for each context size k."""
+    agg = "mean" if reducer == "mean" else "sum"
+    return (
+        df.groupby(["context_size", "permutation_index"])[metric]
+        .agg(agg)
+        .reset_index(name=metric)
+    )
+
+
+def summarise_ctx(ctx_perm: pd.DataFrame, value_col: str) -> pd.DataFrame:
+    """Summarise across permutations for each k: mean, q1, q3, min, max."""
+    return (
+        ctx_perm.groupby("context_size")[value_col]
+        .agg(
+            mean="mean",
+            q1=lambda s: s.quantile(0.25),
+            q3=lambda s: s.quantile(0.75),
+            min="min",
+            max="max",
+        )
+        .reset_index()
+    )
+
+
+def _iqr_yerr(stats_df: pd.DataFrame) -> np.ndarray:
+    lower = np.clip(stats_df["mean"] - stats_df["q1"], a_min=0, a_max=None)
+    upper = np.clip(stats_df["q3"] - stats_df["mean"], a_min=0, a_max=None)
+    return np.vstack([lower, upper])
+
+
+def _range_yerr(stats_df: pd.DataFrame) -> np.ndarray:
+    lower = np.clip(stats_df["mean"] - stats_df["min"], a_min=0, a_max=None)
+    upper = np.clip(stats_df["max"] - stats_df["mean"], a_min=0, a_max=None)
+    return np.vstack([lower, upper])
+
+
+def apply_ctx_dynamic_ylim(
+    ax,
+    ctx: np.ndarray,
+    low_env: np.ndarray,
+    high_env: np.ndarray,
+    *,
+    clamp_min: float | None = 0.0,
+    clamp_max: float | None = None,
+    tick_step: float | None = None,
+    ignore_k0_if_rest_ge: float | None = 0.7,
+    ymin_from_next_k_offset: float | None = None,
+    max_ticks: int | None = None,
+):
+    """Dynamic y-limits with optional k=0 outlier ignoring."""
+    if (ctx == 0).any():
+        mask_nonzero = ctx != 0
+        if mask_nonzero.any():
+            # If threshold is None, always ignore k=0 for bounds.
+            if ignore_k0_if_rest_ge is None:
+                _dynamic_ylim(
+                    ax,
+                    low_env[mask_nonzero],
+                    high_env[mask_nonzero],
+                    pad_frac=0.02,
+                    pad_min=0.003,
+                    clamp_min=clamp_min,
+                    clamp_max=clamp_max,
+                    tick_step=tick_step,
+                    max_ticks=max_ticks,
+                )
+                # Optionally set a custom y-min based on the first k>0
+                if ymin_from_next_k_offset is not None:
+                    next_k = np.min(ctx[mask_nonzero])
+                    next_mask = ctx == next_k
+                    next_low = float(np.nanmin(low_env[next_mask]))
+                    desired_ymin = next_low - float(ymin_from_next_k_offset)
+                    if clamp_min is not None:
+                        desired_ymin = max(clamp_min, desired_ymin)
+                    y0, y1 = ax.get_ylim()
+                    # Only lower y0 if it improves visibility and keeps order
+                    if desired_ymin < y0 and desired_ymin < y1:
+                        ax.set_ylim(desired_ymin, y1)
+                return
+            # Otherwise, ignore only when remaining ks are all reasonably high
+            rest_min = float(np.nanmin(low_env[mask_nonzero]))
+            if rest_min >= float(ignore_k0_if_rest_ge):
+                _dynamic_ylim(
+                    ax,
+                    low_env[mask_nonzero],
+                    high_env[mask_nonzero],
+                    pad_frac=0.02,
+                    pad_min=0.003,
+                    clamp_min=clamp_min,
+                    clamp_max=clamp_max,
+                    tick_step=tick_step,
+                    max_ticks=max_ticks,
+                )
+                if ymin_from_next_k_offset is not None:
+                    next_k = np.min(ctx[mask_nonzero])
+                    next_mask = ctx == next_k
+                    next_low = float(np.nanmin(low_env[next_mask]))
+                    desired_ymin = next_low - float(ymin_from_next_k_offset)
+                    if clamp_min is not None:
+                        desired_ymin = max(clamp_min, desired_ymin)
+                    y0, y1 = ax.get_ylim()
+                    if desired_ymin < y0 and desired_ymin < y1:
+                        ax.set_ylim(desired_ymin, y1)
+                return
+    _dynamic_ylim(
+        ax,
+        low_env,
+        high_env,
+        pad_frac=0.02,
+        pad_min=0.003,
+        clamp_min=clamp_min,
+        clamp_max=clamp_max,
+        tick_step=tick_step,
+        max_ticks=max_ticks,
+    )
+
+
+def plot_ctx_bars(
+    stats_df: pd.DataFrame,
+    *,
+    title: str | None = None,
+    ylabel: str,
+    out_path: Path,
+    style: ImageFillStyle = "iqr",
+    tick_step: float | None = None,
+    clamp_min: float | None = 0.0,
+    clamp_max: float | None = None,
+    ignore_k0: bool = False,
+    ignore_k0_threshold: float | None = 0.7,
+    ymin_from_next_k_offset: float | None = None,
+    minor_tick_step: float | None = None,
+    max_ticks: int | None = None,
+):
+    """Generic bar plot for context-size summaries (mean±IQR or Min–Max)."""
+    if style == "iqr":
+        yerr = _iqr_yerr(stats_df)
+    elif style == "range":
+        yerr = _range_yerr(stats_df)
+    else:
+        raise ValueError(f"Unknown style: {style}")
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.bar(
+        stats_df["context_size"].astype(str),
+        stats_df["mean"],
+        yerr=yerr,
+        capsize=6,
+        color=SKY,
+        alpha=0.8,
+        ecolor=ERR,
+        edgecolor=EDGE,
+    )
+    if title:
+        ax.set_title(title)
+    ax.set_xlabel("Context Size (k)")
+    ax.set_ylabel(ylabel)
+    ax.grid(axis="y", alpha=0.3)
+
+    means = stats_df["mean"].to_numpy()
+    lower, upper = yerr[0], yerr[1]
+    lo_env = means - lower
+    hi_env = means + upper
+    ctx = stats_df["context_size"].to_numpy()
+    if ignore_k0:
+        apply_ctx_dynamic_ylim(
+            ax,
+            ctx,
+            lo_env,
+            hi_env,
+            clamp_min=clamp_min,
+            clamp_max=clamp_max,
+            tick_step=tick_step,
+            ignore_k0_if_rest_ge=ignore_k0_threshold,
+            ymin_from_next_k_offset=ymin_from_next_k_offset,
+            max_ticks=max_ticks,
+        )
+    else:
+        _dynamic_ylim(
+            ax,
+            lo_env,
+            hi_env,
+            pad_frac=0.02,
+            pad_min=0.003,
+            clamp_min=clamp_min,
+            clamp_max=clamp_max,
+            tick_step=tick_step,
+            max_ticks=max_ticks,
+        )
+
+    if minor_tick_step is not None and minor_tick_step > 0:
+        ax.yaxis.set_minor_locator(MultipleLocator(minor_tick_step))
+
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -462,268 +677,101 @@ def generate_plan_a_outputs(results_dir: Path) -> None:
     eval_df = _load_csv(results_dir / "eval_image_summary.csv")
     if eval_df is not None:
         _ensure_dir(figures_dir)
-        # Match notebook: aggregate to per-permutation means at each k, then
-        # summarise across permutations (mean/IQR/min/max)
-        ctx_perm_final = (
-            eval_df.groupby(["context_size", "permutation_index"])["final_dice"]
-            .mean()
-            .reset_index()
-        )
-        ctx_stats = (
-            ctx_perm_final.groupby("context_size")["final_dice"]
-            .agg(
-                mean=lambda s: s.mean(),
-                q1=lambda s: s.quantile(0.25),
-                q3=lambda s: s.quantile(0.75),
-                mini=lambda s: s.min(),
-                maxi=lambda s: s.max(),
-            )
-            .reset_index()
-        )
+        # Final Dice across context size (Plan C)
+        ctx_perm_final = compute_ctx_perm(eval_df, "final_dice", "mean")
+        ctx_stats = summarise_ctx(ctx_perm_final, "final_dice")
         ctx_stats.to_csv(figures_dir / "eval_final_dice_per_context.csv", index=False)
-
-        # IQR bars for discrete context sizes (Final Dice)
-        iqr_lower = np.clip(ctx_stats["mean"] - ctx_stats["q1"], a_min=0, a_max=None)
-        iqr_upper = np.clip(ctx_stats["q3"] - ctx_stats["mean"], a_min=0, a_max=None)
-        iqr_yerr = np.vstack([iqr_lower, iqr_upper])
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.bar(
-            ctx_stats["context_size"].astype(str),
-            ctx_stats["mean"],
-            yerr=iqr_yerr,
-            capsize=6,
-            color="skyblue",
-            alpha=0.8,
-            ecolor="navy",
-            edgecolor="black",
+        plot_ctx_bars(
+            ctx_stats,
+            title="Eval: Final Dice by Context Size (with IQR)",
+            ylabel="Final Dice",
+            out_path=figures_dir / "eval_final_dice_iqr.png",
+            style="iqr",
+            tick_step=None,
+            max_ticks=8,
+            clamp_min=0.0,
         )
-        ax.set_title("Eval: Final Dice by Context Size (with IQR)")
-        ax.set_xlabel("Context Size (k)")
-        ax.set_ylabel("Final Dice")
-        ax.grid(axis="y", alpha=0.3)
-        means = ctx_stats["mean"].to_numpy()
-        _dynamic_ylim(ax, means - iqr_lower, means + iqr_upper, pad_frac=0.02, pad_min=0.003, clamp_min=0.0, clamp_max=None, tick_step=0.005)
-        plt.tight_layout()
-        fig.savefig(figures_dir / "eval_final_dice_iqr.png", dpi=200, bbox_inches="tight")
-        plt.close(fig)
-
-        # Min–Max range bars for discrete context sizes (Final Dice)
-        rng_lower = np.clip(ctx_stats["mean"] - ctx_stats["mini"], a_min=0, a_max=None)
-        rng_upper = np.clip(ctx_stats["maxi"] - ctx_stats["mean"], a_min=0, a_max=None)
-        rng_yerr = np.vstack([rng_lower, rng_upper])
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.bar(
-            ctx_stats["context_size"].astype(str),
-            ctx_stats["mean"],
-            yerr=rng_yerr,
-            capsize=6,
-            color="skyblue",
-            alpha=0.8,
-            ecolor="navy",
-            edgecolor="black",
+        plot_ctx_bars(
+            ctx_stats,
+            title="Eval: Final Dice by Context Size (Min–Max Range)",
+            ylabel="Final Dice",
+            out_path=figures_dir / "eval_final_dice_range.png",
+            style="range",
+            tick_step=None,
+            max_ticks=8,
+            clamp_min=0.0,
         )
-        ax.set_title("Eval: Final Dice by Context Size (Min–Max Range)")
-        ax.set_xlabel("Context Size (k)")
-        ax.set_ylabel("Final Dice")
-        ax.grid(axis="y", alpha=0.3)
-        means = ctx_stats["mean"].to_numpy()
-        _dynamic_ylim(ax, means - rng_lower, means + rng_upper, pad_frac=0.02, pad_min=0.003, clamp_min=0.0, clamp_max=None, tick_step=0.005)
-        plt.tight_layout()
-        fig.savefig(figures_dir / "eval_final_dice_range.png", dpi=200, bbox_inches="tight")
-        plt.close(fig)
 
         # Also produce the same plots for Initial Dice across context sizes
-        ctx_perm_init = (
-            eval_df.groupby(["context_size", "permutation_index"])["initial_dice"]
-            .mean()
-            .reset_index()
-        )
-        ctx_stats_init = (
-            ctx_perm_init.groupby("context_size")["initial_dice"]
-            .agg(
-                mean=lambda s: s.mean(),
-                q1=lambda s: s.quantile(0.25),
-                q3=lambda s: s.quantile(0.75),
-                mini=lambda s: s.min(),
-                maxi=lambda s: s.max(),
-            )
-            .reset_index()
-        )
+        ctx_perm_init = compute_ctx_perm(eval_df, "initial_dice", "mean")
+        ctx_stats_init = summarise_ctx(ctx_perm_init, "initial_dice")
         ctx_stats_init.to_csv(figures_dir / "eval_initial_dice_per_context.csv", index=False)
-
-        init_iqr_lower = np.clip(ctx_stats_init["mean"] - ctx_stats_init["q1"], a_min=0, a_max=None)
-        init_iqr_upper = np.clip(ctx_stats_init["q3"] - ctx_stats_init["mean"], a_min=0, a_max=None)
-        init_iqr_yerr = np.vstack([init_iqr_lower, init_iqr_upper])
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.bar(
-            ctx_stats_init["context_size"].astype(str),
-            ctx_stats_init["mean"],
-            yerr=init_iqr_yerr,
-            capsize=6,
-            color="skyblue",
-            alpha=0.8,
-            ecolor="navy",
-            edgecolor="black",
-        )
-        ax.set_title("Eval: Initial Dice by Context Size (with IQR)")
-        ax.set_xlabel("Context Size (k)")
-        ax.set_ylabel("Initial Dice")
-        ax.grid(axis="y", alpha=0.3)
-        means = ctx_stats_init["mean"].to_numpy()
-        _dynamic_ylim(ax, means - init_iqr_lower, means + init_iqr_upper, pad_frac=0.02, pad_min=0.003, clamp_min=0.90, clamp_max=None, tick_step=0.005)
-        plt.tight_layout()
-        fig.savefig(figures_dir / "eval_initial_dice_iqr.png", dpi=200, bbox_inches="tight")
-        plt.close(fig)
-
-        init_rng_lower = np.clip(ctx_stats_init["mean"] - ctx_stats_init["mini"], a_min=0, a_max=None)
-        init_rng_upper = np.clip(ctx_stats_init["maxi"] - ctx_stats_init["mean"], a_min=0, a_max=None)
-        init_rng_yerr = np.vstack([init_rng_lower, init_rng_upper])
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.bar(
-            ctx_stats_init["context_size"].astype(str),
-            ctx_stats_init["mean"],
-            yerr=init_rng_yerr,
-            capsize=6,
-            color="skyblue",
-            alpha=0.8,
-            ecolor="navy",
-            edgecolor="black",
-        )
-        ax.set_title("Eval: Initial Dice by Context Size (Min–Max Range)")
-        ax.set_xlabel("Context Size (k)")
-        ax.set_ylabel("Initial Dice")
-        ax.grid(axis="y", alpha=0.3)
-        means = ctx_stats_init["mean"].to_numpy()
-        _dynamic_ylim(ax, means - init_rng_lower, means + init_rng_upper, pad_frac=0.02, pad_min=0.003, clamp_min=0.90, clamp_max=None, tick_step=0.005)
-        plt.tight_layout()
-        fig.savefig(figures_dir / "eval_initial_dice_range.png", dpi=200, bbox_inches="tight")
-        plt.close(fig)
-
-        # Plan C: Total iterations per permutation at each k, then summary across permutations
-        total_iter_stats = (
-            eval_df.groupby(["context_size", "permutation_index"])["iterations_used"]
-            .sum()
-            .groupby("context_size")
-            .agg(
-                total_iter="mean",
-                q1=lambda s: s.quantile(0.25),
-                q3=lambda s: s.quantile(0.75),
-                mini="min",
-                maxi="max",
-            )
-            .reset_index()
-        )
-        # Save CSV summary for downstream analysis
-        total_iter_stats_out = total_iter_stats.copy()
-        total_iter_stats_out["iqr"] = total_iter_stats_out["q3"] - total_iter_stats_out["q1"]
-        total_iter_stats_out["range"] = total_iter_stats_out["maxi"] - total_iter_stats_out["mini"]
-        total_iter_stats_out.to_csv(figures_dir / "plan_c_total_iterations_stats.csv", index=False)
-        lower_total = np.clip(total_iter_stats["total_iter"] - total_iter_stats["q1"], a_min=0, a_max=None)
-        upper_total = np.clip(total_iter_stats["q3"] - total_iter_stats["total_iter"], a_min=0, a_max=None)
-        total_yerr = np.vstack([lower_total, upper_total])
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-        bars = ax.bar(
-            total_iter_stats["context_size"].astype(str),
-            total_iter_stats["total_iter"],
-            yerr=total_yerr,
-            capsize=6,
-            color="skyblue",
-            alpha=0.8,
-            ecolor="navy",
-            edgecolor="black",
-        )
-        ax.set_title("Plan C: Total Iterations Used by Context Size (with IQR)")
-        ax.set_xlabel("Context Size (k)")
-        ax.set_ylabel("Average Total Iterations Used")
-        ax.grid(axis="y", alpha=0.3)
-
-        plt.tight_layout()
-        means = total_iter_stats["total_iter"].to_numpy()
-        # Finer-grain ticks help readability for integer iteration counts
-        _dynamic_ylim(
-            ax,
-            means - lower_total,
-            means + upper_total,
-            pad_frac=0.05,
-            pad_min=1.0,
+        plot_ctx_bars(
+            ctx_stats_init,
+            title="Eval: Initial Dice by Context Size (with IQR)",
+            ylabel="Initial Dice",
+            out_path=figures_dir / "eval_initial_dice_iqr.png",
+            style="iqr",
+            tick_step=None,
+            max_ticks=8,
             clamp_min=0.0,
-            tick_step=10.0,
+            ignore_k0=True,
+            ignore_k0_threshold=None,
+            ymin_from_next_k_offset=0.03,
         )
-        # Keep grid on major ticks only; provide finer minor ticks without grid
-        ax.yaxis.set_minor_locator(MultipleLocator(5.0))
-        fig.savefig(figures_dir / "plan_c_total_iterations.png", dpi=200, bbox_inches="tight")
-        plt.close(fig)
+        plot_ctx_bars(
+            ctx_stats_init,
+            title="Eval: Initial Dice by Context Size (Min–Max Range)",
+            ylabel="Initial Dice",
+            out_path=figures_dir / "eval_initial_dice_range.png",
+            style="range",
+            tick_step=None,
+            max_ticks=8,
+            clamp_min=0.0,
+            ignore_k0=True,
+            ignore_k0_threshold=None,
+            ymin_from_next_k_offset=0.03,
+        )
 
-        # Plan C: Average iterations per eval image by context size (with IQR)
-        avg_iter_perm = (
-            eval_df.groupby(["context_size", "permutation_index"])["iterations_used"].mean().reset_index()
+        # Plan C: Total iterations (sum per permutation) and Average iterations per image
+        ctx_perm_total = compute_ctx_perm(eval_df, "iterations_used", "sum")
+        total_iter_stats = summarise_ctx(ctx_perm_total, "iterations_used")
+        # Save enriched CSV with iqr/range
+        total_out = total_iter_stats.copy()
+        total_out["iqr"] = total_out["q3"] - total_out["q1"]
+        total_out["range"] = total_out["max"] - total_out["min"]
+        total_out.to_csv(figures_dir / "plan_c_total_iterations_stats.csv", index=False)
+        plot_ctx_bars(
+            total_iter_stats,
+            title="Plan C: Total Iterations Used by Context Size (with IQR)",
+            ylabel="Average Total Iterations Used",
+            out_path=figures_dir / "plan_c_total_iterations.png",
+            style="iqr",
+            tick_step=TOTAL_ITER_TICK,
+            clamp_min=0.0,
+            minor_tick_step=5.0,
         )
-        avg_iter_stats = (
-            avg_iter_perm.groupby("context_size")["iterations_used"]
-            .agg(
-                mean=lambda s: s.mean(),
-                q1=lambda s: s.quantile(0.25),
-                q3=lambda s: s.quantile(0.75),
-                mini=lambda s: s.min(),
-                maxi=lambda s: s.max(),
-            )
-            .reset_index()
-        )
-        lower_avg = np.clip(avg_iter_stats["mean"] - avg_iter_stats["q1"], a_min=0, a_max=None)
-        upper_avg = np.clip(avg_iter_stats["q3"] - avg_iter_stats["mean"], a_min=0, a_max=None)
-        avg_iter_yerr = np.vstack([lower_avg, upper_avg])
 
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.bar(
-            avg_iter_stats["context_size"].astype(str),
-            avg_iter_stats["mean"],
-            yerr=avg_iter_yerr,
-            capsize=6,
-            color="skyblue",
-            alpha=0.8,
-            ecolor="navy",
-            edgecolor="black",
+        ctx_perm_avg = compute_ctx_perm(eval_df, "iterations_used", "mean")
+        avg_iter_stats = summarise_ctx(ctx_perm_avg, "iterations_used")
+        plot_ctx_bars(
+            avg_iter_stats,
+            title="Plan C: Average Iterations per Image by Context Size (with IQR)",
+            ylabel="Average Iterations per Image",
+            out_path=figures_dir / "plan_c_avg_iterations_iqr.png",
+            style="iqr",
+            tick_step=AVG_ITER_TICK,
+            clamp_min=0.0,
         )
-        ax.set_title("Plan C: Average Iterations per Image by Context Size (with IQR)")
-        ax.set_xlabel("Context Size (k)")
-        ax.set_ylabel("Average Iterations per Image")
-        ax.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-        means = avg_iter_stats["mean"].to_numpy()
-        # Finer-grain ticks for readability on small values
-        _dynamic_ylim(ax, means - lower_avg, means + upper_avg, pad_frac=0.05, pad_min=0.05, clamp_min=0.0, tick_step=0.2)
-        fig.savefig(figures_dir / "plan_c_avg_iterations_iqr.png", dpi=200, bbox_inches="tight")
-        plt.close(fig)
-
-        # Plan C: Average iterations per image by context size (Min–Max range)
-        range_low = np.clip(avg_iter_stats["mean"] - avg_iter_stats["mini"], a_min=0, a_max=None)
-        range_high = np.clip(avg_iter_stats["maxi"] - avg_iter_stats["mean"], a_min=0, a_max=None)
-        range_yerr = np.vstack([range_low, range_high])
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.bar(
-            avg_iter_stats["context_size"].astype(str),
-            avg_iter_stats["mean"],
-            yerr=range_yerr,
-            capsize=6,
-            color="skyblue",
-            alpha=0.8,
-            ecolor="navy",
-            edgecolor="black",
+        plot_ctx_bars(
+            avg_iter_stats,
+            title="Plan C: Average Iterations per Image by Context Size (Min–Max Range)",
+            ylabel="Average Iterations per Image",
+            out_path=figures_dir / "plan_c_avg_iterations_range.png",
+            style="range",
+            tick_step=AVG_ITER_TICK,
+            clamp_min=0.0,
         )
-        ax.set_title("Plan C: Average Iterations per Image by Context Size (Min–Max Range)")
-        ax.set_xlabel("Context Size (k)")
-        ax.set_ylabel("Average Iterations per Image")
-        ax.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-        _dynamic_ylim(ax, means - range_low, means + range_high, pad_frac=0.05, pad_min=0.05, clamp_min=0.0, tick_step=0.2)
-        fig.savefig(figures_dir / "plan_c_avg_iterations_range.png", dpi=200, bbox_inches="tight")
-        plt.close(fig)
 
 
 def generate_plan_b_outputs(plan_b_root: Path) -> None:
