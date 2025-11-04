@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -68,75 +68,57 @@ def iter_ablation_records(
     repo_root: Path,
     measure_config: MeasureConfig,
     metric_name: str,
+    include_families: Optional[List[str]] = None,
 ) -> Iterable[Dict[str, float | str]]:
     dataset_configs: Dict[str, List[AblationConfig]] = {
-        "Experiment 2": [
-            AblationConfig(
-                "Pred 0.90",
-                "red",
-                Path("experiments/scripts/experiment_2_MM_commit_pred_90/B"),
-            ),
-            AblationConfig(
-                "Label 0.90",
-                "green",
-                Path("experiments/scripts/experiment_2_MM_commit_label_90/B"),
-            ),
-            AblationConfig(
-                "Pred 0.97",
-                "blue",
-                Path("experiments/scripts/experiment_2_MM_commit_pred_97/B"),
-            ),
-            AblationConfig(
-                "Label 0.97",
-                "purple",
-                Path("experiments/scripts/experiment_2_MM_commit_label_97/B"),
-            ),
-        ],
-        "Experiment 3": [
-            AblationConfig(
-                "Pred 0.90",
-                "red",
-                Path("experiments/scripts/experiment_3/commit_pred_90/B"),
-            ),
-            AblationConfig(
-                "Label 0.90",
-                "green",
-                Path("experiments/scripts/experiment_3/commit_label_90/B"),
-            ),
-            AblationConfig(
-                "Pred 0.97",
-                "blue",
-                Path("experiments/scripts/experiment_3/commit_pred_97/B"),
-            ),
-            AblationConfig(
-                "Label 0.97",
-                "purple",
-                Path("experiments/scripts/experiment_3/commit_label_97/B"),
-            ),
-        ],
-        "Experiment 4": [
-            AblationConfig(
-                "Pred 0.90",
-                "red",
-                Path("experiments/scripts/experiment_4/commit_pred_90/B"),
-            ),
-            AblationConfig(
-                "Label 0.90",
-                "green",
-                Path("experiments/scripts/experiment_4/commit_label_90/B"),
-            ),
-            AblationConfig(
-                "Pred 0.97",
-                "blue",
-                Path("experiments/scripts/experiment_4/commit_pred_97/B"),
-            ),
-            AblationConfig(
-                "Label 0.97",
-                "purple",
-                Path("experiments/scripts/experiment_4/commit_label_97/B"),
-            ),
-        ],
     }
+
+    # Dynamic families discovered from experiments/scripts
+    FAMILY_ROOTS: Dict[str, str] = {
+        "experiment_acdc": "ACDC",
+        "experiment_btcv": "BTCV",
+        "experiment_buid": "BUID",
+        "experiment_hipxray": "HipXRay",
+        "experiment_pandental": "PanDental",
+        "experiment_scd": "SCD",
+        "experiment_scr": "SCR",
+        "experiment_spineweb": "SpineWeb",
+        "experiment_stare": "STARE",
+        "experiment_t1mix": "T1mix",
+        "experiment_wbc": "WBC",
+        "experiment_total_segmentator": "TotalSegmentator"
+    }
+
+    dynamic_roots = list(FAMILY_ROOTS.keys())
+    if include_families:
+        allow = {k for k, v in FAMILY_ROOTS.items() if v in include_families or k in include_families}
+        dynamic_roots = [r for r in dynamic_roots if r in allow]
+
+    dynamic_ablation_defs = [
+        ("Pred 0.90", "red", "commit_pred_90"),
+        ("Label 0.90", "green", "commit_label_90"),
+        ("Pred 0.97", "blue", "commit_pred_97"),
+        ("Label 0.97", "purple", "commit_label_97"),
+    ]
+
+    scripts_root = Path("experiments/scripts")
+    for root_name in dynamic_roots:
+        root_path = repo_root / scripts_root / root_name
+        if not root_path.exists():
+            continue
+        family = FAMILY_ROOTS.get(root_name, root_name)
+        for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
+            configs: List[AblationConfig] = []
+            missing = False
+            for ablation_name, color, commit_dir in dynamic_ablation_defs:
+                base_dir = scripts_root / root_name / task_dir.name / commit_dir / "B"
+                csv_path = repo_root / base_dir / measure_config.file_name
+                if not csv_path.exists():
+                    missing = True
+                    break
+                configs.append(AblationConfig(ablation_name, color, base_dir))
+            if not missing and configs:
+                dataset_configs[f"{family} — {task_dir.name}"] = configs
 
     metric_column = measure_config.metric_columns[metric_name]
 
@@ -179,7 +161,7 @@ def plot(
     }
 
     fig_height = max(3, 1.2 * len(dataset_order) + 1)
-    fig, ax = plt.subplots(figsize=(10, fig_height))
+    fig, ax = plt.subplots(figsize=(14, fig_height))
 
     handles = {}
     for dataset_index, dataset in enumerate(dataset_order):
@@ -202,9 +184,18 @@ def plot(
     ax.grid(axis="x", linestyle="--", linewidth=0.5, alpha=0.5)
     ax.set_xlim(left=0)
     ax.set_ylim(-0.5, len(dataset_order) - 0.5)
-    ax.legend(handles=[handles[a] for a in ablation_order], title="Ablation", loc="upper right")
+    # Place legend outside the plot area to avoid overlap
+    ax.legend(
+        handles=[handles[a] for a in ablation_order],
+        title="Ablation",
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        borderaxespad=0.0,
+        frameon=True,
+    )
 
-    fig.tight_layout()
+    # Leave room on the right for the external legend
+    fig.tight_layout(rect=[0, 0, 0.82, 1])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=300)
     plt.close(fig)
@@ -231,26 +222,62 @@ def main() -> None:
         type=Path,
         help="Optional custom output path for the generated figure.",
     )
+    parser.add_argument(
+        "--split-by-family",
+        action="store_true",
+        help="If set, generate one figure per dataset family (ACDC, BTCV, ...).",
+    )
+    parser.add_argument(
+        "--family",
+        type=str,
+        action="append",
+        help="Restrict to one or more dataset families (e.g., --family BTCV --family WBC).",
+    )
     args = parser.parse_args()
 
     measure_config = MEASURE_CONFIGS[args.measure]
     metric_label = METRIC_DISPLAY_NAMES[args.metric]
 
     repo_root = Path(__file__).resolve().parents[2]
-    if args.output:
-        output_path = args.output if args.output.is_absolute() else repo_root / args.output
+    if args.split_by_family or args.family:
+        families = args.family if args.family else [
+            "ACDC","BTCV","BUID","HipXRay","PanDental","SCD","SCR","SpineWeb","STARE","T1mix","WBC","TotalSegmentator"
+        ]
+        for fam in families:
+            recs = list(iter_ablation_records(repo_root, measure_config, args.metric, include_families=[fam]))
+            if not recs:
+                continue
+            fam_slug = fam.replace("/", "_")
+            if args.output and args.output.is_absolute():
+                out_path = args.output
+            elif args.output:
+                out_path = repo_root / args.output
+            else:
+                out_path = repo_root / "figures" / f"planB_{measure_config.output_slug}_{args.metric}_forest_{fam_slug}.png"
+            plot(
+                recs,
+                out_path,
+                x_axis_label=measure_config.x_axis_label_template.format(metric_label=metric_label),
+                title=f"{measure_config.title_template.format(metric_label=metric_label)} — {fam}",
+            )
+            print(f"Saved forest plot to {out_path}")
     else:
-        filename = f"planB_{measure_config.output_slug}_{args.metric}_forest.png"
-        output_path = repo_root / "figures" / filename
+        if args.output and args.output.is_absolute():
+            output_path = args.output
+        elif args.output:
+            output_path = repo_root / args.output
+        else:
+            filename = f"planB_{measure_config.output_slug}_{args.metric}_forest.png"
+            output_path = repo_root / "figures" / filename
 
-    records = list(iter_ablation_records(repo_root, measure_config, args.metric))
-    plot(
-        records,
-        output_path,
-        x_axis_label=measure_config.x_axis_label_template.format(metric_label=metric_label),
-        title=measure_config.title_template.format(metric_label=metric_label),
-    )
-    print(f"Saved forest plot to {output_path}")
+        records = list(iter_ablation_records(repo_root, measure_config, args.metric))
+        plot(
+            records,
+            output_path,
+            x_axis_label=measure_config.x_axis_label_template.format(metric_label=metric_label),
+            title=measure_config.title_template.format(metric_label=metric_label),
+        )
+        print(f"Saved forest plot to {output_path}")
 
 
 if __name__ == "__main__":
