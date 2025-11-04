@@ -254,11 +254,6 @@ def main() -> None:
         help="Choose which dispersion metric to plot.",
     )
     parser.add_argument(
-        "--output",
-        type=Path,
-        help="Optional custom output path for the generated figure.",
-    )
-    parser.add_argument(
         "--split-by-family",
         action="store_true",
         help="If set, generate one figure per dataset family (ACDC, BTCV, ...).",
@@ -298,12 +293,7 @@ def main() -> None:
             if not recs:
                 continue
             fam_slug = fam.replace("/", "_")
-            if args.output and args.output.is_absolute():
-                out_path = args.output
-            elif args.output:
-                out_path = repo_root / args.output
-            else:
-                out_path = repo_root / "figures" / f"planB_{measure_config.output_slug}_{args.metric}_forest_{fam_slug}.png"
+            out_path = repo_root / "figures" / f"planB_{measure_config.output_slug}_{args.metric}_forest_{fam_slug}.png"
             plot(
                 recs,
                 out_path,
@@ -312,13 +302,8 @@ def main() -> None:
             )
             print(f"Saved forest plot to {out_path}")
     else:
-        if args.output and args.output.is_absolute():
-            output_path = args.output
-        elif args.output:
-            output_path = repo_root / args.output
-        else:
-            filename = f"planB_{measure_config.output_slug}_{args.metric}_forest.png"
-            output_path = repo_root / "figures" / filename
+        filename = f"planB_{measure_config.output_slug}_{args.metric}_forest.png"
+        output_path = repo_root / "figures" / filename
 
         records = list(
             iter_ablation_records(
