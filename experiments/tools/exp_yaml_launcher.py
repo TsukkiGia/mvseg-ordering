@@ -22,8 +22,9 @@ from typing import Any, Iterable
 
 import yaml
 from experiments.experiment_runner import ExperimentSetup, run_experiment
-from experiments.dataset.mega_medical_dataset import MegaMedicalDataset
+from experiments.dataset.mega_medical_dataset import MegaMedicalDataset, DATASETS
 from experiments.dataset.wbc_multiple_perms import WBCDataset
+from experiments.dataset.multisegment2d import MultiBinarySegment2D
 
 
 
@@ -42,6 +43,61 @@ def _validate_megamedical_cfg(cfg: dict[str, Any]) -> None:
         raise ValueError(
             "Invalid MegaMedical config: provide either mega_target_index or a full (mega_task, mega_label, mega_slicing) triple."
         )
+
+
+def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> list[dict[str, Any]]:
+    merged = {**defaults, **exp}
+    dataset_name = merged.get("mega_dataset_name")
+    if not dataset_name:
+        return [exp]
+
+    dl = MultiBinarySegment2D(
+        resolution=128,
+        allow_instance=False,
+        min_label_density=3e-3,
+        preload=False,
+        samples_per_epoch=1000,
+        support_size=4,
+        target_size=1,
+        sampling="hierarchical",
+        slicing=["midslice", "maxslice"],
+        split="train",
+        context_split="same",
+        datasets=DATASETS,
+    )
+    dl.init()
+    task_df = dl.task_df.copy()
+    mask = task_df["task"].str.startswith(f"{dataset_name}/")
+    subset = task_df[mask]
+    if subset.empty:
+        raise ValueError(
+            f"No MegaMedical tasks found for dataset={dataset_name!r} (split='train')."
+        )
+
+    base_script_dir = Path(merged["script_dir"])
+    base_root = base_script_dir.parent
+    ablation_dir = base_script_dir.name
+
+    expanded: list[dict[str, Any]] = []
+    for idx, row in subset.head(10).iterrows():
+        base_component = row["task"].replace("/", "_")
+        task_component = f"{base_component}_label{int(row['label'])}_{row['slicing']}_idx{int(idx)}"
+        target_dir = base_root / task_component / ablation_dir
+
+        cfg = dict(exp)
+        cfg["mega_target_index"] = int(idx)
+        cfg["mega_task"] = row["task"]
+        cfg["mega_label"] = int(row["label"])
+        cfg["mega_slicing"] = row["slicing"]
+        cfg["script_dir"] = str(target_dir)
+        cfg["task_name"] = row["task"]
+        cfg.pop("mega_dataset_name", None)
+        cfg.pop("mega_dataset_split", None)
+
+        base_name = exp.get("name", "exp")
+        cfg["name"] = f"{base_name}_{task_component}_{idx}"
+        expanded.append(cfg)
+    return expanded
 
 
 def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> ExperimentSetup:
@@ -114,6 +170,7 @@ def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> Exp
         device=str(cfg.get("device", "cpu")),
         eval_fraction=eval_fraction,
         eval_checkpoints=eval_checkpoints,
+        task_name=cfg.get("task_name"),
     )
     return setup
 
@@ -127,6 +184,11 @@ def main() -> None:
         choices=["A", "B"],
         default=None,
         help="If set, restrict to one plan.")
+    ap.add_argument(
+        "--expand-mega-dataset",
+        action="store_true",
+        help="Expand each experiment using mega_dataset_name into one run per MegaMedical task index.",
+    )
     args = ap.parse_args()
 
     data = yaml.safe_load(args.config.read_text())
@@ -136,13 +198,19 @@ def main() -> None:
         raise SystemExit("No experiments found in config")
 
     setups: list[tuple[str, ExperimentSetup]] = []
-    for exp in experiments:
-        plans = exp.get("plan", ["A"])  # default to Plan A
-        for plan in plans:
-            if args.only_plan and plan != args.only_plan:
-                continue
-            setup = build_setup(defaults, exp, plan)
-            setups.append((f"{exp.get('name','exp')}:{plan}", setup))
+    for raw_exp in experiments:
+        expanded_entries = (
+            expand_megamedical_entry(defaults, raw_exp)
+            if args.expand_mega_dataset
+            else [raw_exp]
+        )
+        for exp in expanded_entries:
+            plans = exp.get("plan", ["A"])  # default to Plan A
+            for plan in plans:
+                if args.only_plan and plan != args.only_plan:
+                    continue
+                setup = build_setup(defaults, exp, plan)
+                setups.append((f"{exp.get('name','exp')}:{plan}", setup))
 
     for tag, setup in setups:
         # Enriched dry-run summary for quick verification

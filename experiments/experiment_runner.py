@@ -43,6 +43,7 @@ class ExperimentSetup:
     eval_checkpoints: Optional[list[int]] = None
     shards: int = 1
     device: str = "cpu"
+    task_name: Optional[str] = None
 
 
 class _SubsetDataset:
@@ -87,7 +88,7 @@ def sample_disjoint_subsets(indices: Sequence[int], subset_size: int, seed: int)
     return subsets
 
 
-def aggregate_subset_results(root: Path) -> None:
+def aggregate_subset_results(root: Path, extra_columns: Optional[dict[str, Any]] = None) -> None:
     frames = []
     eval_frames = []
     for subset_dir in sorted(root.glob("Subset_*")):
@@ -122,12 +123,22 @@ def aggregate_subset_results(root: Path) -> None:
         return
 
     aggregated = pd.concat(frames, ignore_index=True)
+    if extra_columns:
+        insert_at = 1 if "subset_index" in aggregated.columns else 0
+        for key, value in extra_columns.items():
+            aggregated.insert(insert_at, key, value)
+            insert_at += 1
     out_path = root / "subset_support_images_summary.csv"
     aggregated.to_csv(out_path, index=False)
     print(f"[plan_b] Wrote concatenated subset summaries to {out_path}")
 
     if eval_frames:
         eval_aggregated = pd.concat(eval_frames, ignore_index=True)
+        if extra_columns:
+            insert_at = 1 if "subset_index" in eval_aggregated.columns else 0
+            for key, value in extra_columns.items():
+                eval_aggregated.insert(insert_at, key, value)
+                insert_at += 1
         eval_out_path = root / "subset_eval_image_summary.csv"
         eval_aggregated.to_csv(eval_out_path, index=False)
         print(f"[plan_b] Wrote concatenated subset eval summaries to {eval_out_path}")
@@ -269,7 +280,10 @@ def run_plan_B(setup: ExperimentSetup):
             subset_size=None,
         )
         run_single_experiment(subset_setup)
-    aggregate_subset_results(plan_b_root)
+    extra_columns = {}
+    if setup.task_name:
+        extra_columns["task_name"] = setup.task_name
+    aggregate_subset_results(plan_b_root, extra_columns=extra_columns or None)
     generate_plan_b_outputs(plan_b_root)
 
 def run_experiment(setup: ExperimentSetup):
