@@ -22,11 +22,11 @@ experiments:
   - name: label_97
     dice_cutoff: 0.97
     commit_ground_truth: true
-    script_dir: experiments/scripts/experiment_scr/commit_label_97
+    script_dir: experiments/scripts/random/experiment_scr_50_cutoff/commit_label_97
     plan: [B]
 
   - name: pred_97
     dice_cutoff: 0.97
     commit_ground_truth: false
-    script_dir: experiments/scripts/experiment_scr/commit_pred_97
+    script_dir: experiments/scripts/random/experiment_scr_50_cutoff/commit_pred_97
     plan: [B]
