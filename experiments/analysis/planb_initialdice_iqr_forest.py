@@ -69,6 +69,7 @@ def iter_ablation_records(
     measure_config: MeasureConfig,
     metric_name: str,
     include_families: Optional[List[str]] = None,
+    procedure: Optional[str] = None,
 ) -> Iterable[Dict[str, float | str]]:
     dataset_configs: Dict[str, List[AblationConfig]] = {
     }
@@ -101,7 +102,7 @@ def iter_ablation_records(
         ("Label 0.97", "purple", "commit_label_97"),
     ]
 
-    scripts_root = Path("experiments/scripts")
+    scripts_root = Path("experiments/scripts") / procedure if procedure else Path("experiments/scripts")
     for root_name in dynamic_roots:
         root_path = repo_root / scripts_root / root_name
         if not root_path.exists():
@@ -178,7 +179,7 @@ def plot(
     }
 
     fig_height = max(3, 1.2 * len(dataset_order) + 1)
-    fig, ax = plt.subplots(figsize=(14, fig_height))
+    fig, ax = plt.subplots(figsize=(20, fig_height))
 
     handles = {}
     for dataset_index, dataset in enumerate(dataset_order):
@@ -268,6 +269,12 @@ def main() -> None:
         action="append",
         help="Restrict to one or more dataset families (e.g., --family BTCV --family WBC).",
     )
+    parser.add_argument(
+        "--procedure",
+        type=str,
+        default=None,
+        help="Optional subfolder under experiments/scripts to scan (e.g., 'random', 'curriculum').",
+    )
     args = parser.parse_args()
 
     measure_config = MEASURE_CONFIGS[args.measure]
@@ -279,7 +286,15 @@ def main() -> None:
             "ACDC","BTCV","BUID","HipXRay","PanDental","SCD","SCR","SpineWeb","STARE","T1mix","WBC","TotalSegmentator"
         ]
         for fam in families:
-            recs = list(iter_ablation_records(repo_root, measure_config, args.metric, include_families=[fam]))
+            recs = list(
+                iter_ablation_records(
+                    repo_root,
+                    measure_config,
+                    args.metric,
+                    include_families=[fam],
+                    procedure=args.procedure,
+                )
+            )
             if not recs:
                 continue
             fam_slug = fam.replace("/", "_")
@@ -305,7 +320,14 @@ def main() -> None:
             filename = f"planB_{measure_config.output_slug}_{args.metric}_forest.png"
             output_path = repo_root / "figures" / filename
 
-        records = list(iter_ablation_records(repo_root, measure_config, args.metric))
+        records = list(
+            iter_ablation_records(
+                repo_root,
+                measure_config,
+                args.metric,
+                procedure=args.procedure,
+            )
+        )
         plot(
             records,
             output_path,

@@ -79,7 +79,7 @@ def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> l
     ablation_dir = base_script_dir.name
 
     expanded: list[dict[str, Any]] = []
-    for idx, row in subset.head(10).iterrows():
+    for idx, row in subset.head(50).iterrows():
         base_component = row["task"].replace("/", "_")
         task_component = f"{base_component}_label{int(row['label'])}_{row['slicing']}_idx{int(idx)}"
         target_dir = base_root / task_component / ablation_dir
