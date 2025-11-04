@@ -1,0 +1,32 @@
+version: 1
+
+# Defaults applied to all experiments unless overridden per-entry.
+defaults:
+  prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
+  prompt_config_key: click_generator
+  prompt_iterations: 20
+  permutations: 100
+  use_mega_dataset: true
+  mega_dataset_name: SCD
+  mega_dataset_size: 100
+  no_visualize: true
+  device: cuda
+  shards: 8
+  experiment_seed: 23
+  eval_fraction: 0.25
+  eval_checkpoints: [5, 10, 20, 50]
+  plan_b_subset_size: 10
+
+experiments:
+
+  - name: label_97
+    dice_cutoff: 0.97
+    commit_ground_truth: true
+    script_dir: experiments/scripts/experiment_scd/commit_label_97
+    plan: [B]
+
+  - name: pred_97
+    dice_cutoff: 0.97
+    commit_ground_truth: false
+    script_dir: experiments/scripts/experiment_scd/commit_pred_97
+    plan: [B]
