@@ -131,6 +131,22 @@ def iter_ablation_records(
             values = df[metric_column].dropna()
             if values.empty:
                 raise ValueError(f"No values found in column '{metric_column}' of {csv_path}")
+            # For iteration measures we can annotate stop reasons; compute here if available
+            hit_frac = None
+            support_csv = repo_root / config.base_dir / "subset_support_images_summary.csv"
+            if support_csv.exists():
+                s = pd.read_csv(support_csv)
+                if "reached_cutoff" in s.columns and len(s) > 0:
+                    reached = s["reached_cutoff"].astype(str).str.lower().isin(["true", "1", "t", "yes"]).astype(float)
+                    if "subset_index" in s.columns:
+                        per_subset = reached.groupby(s["subset_index"]).mean()
+                        if len(per_subset) > 0:
+                            hit_frac = float(per_subset.median())
+                        else:
+                            hit_frac = float(reached.mean())
+                    else:
+                        hit_frac = float(reached.mean())
+
             yield {
                 "dataset": dataset,
                 "ablation": config.name,
@@ -138,6 +154,7 @@ def iter_ablation_records(
                 "center": float(values.median()),
                 "low": float(values.min()),
                 "high": float(values.max()),
+                "hit_frac": hit_frac,
             }
 
 
@@ -177,8 +194,26 @@ def plot(
             ax.plot(row["center"], y, "o", color=color, markersize=6)
             handles.setdefault(ablation, ax.plot([], [], color=color, label=ablation)[0])
 
-    ax.set_yticks(range(len(dataset_order)))
-    ax.set_yticklabels(dataset_order)
+    # If this is the Average Iterations view, append Hit% per ablation to the labels
+    title_lower = title.lower()
+    if "average iterations" in title_lower:
+        # Build pivot of hit_frac so we can format per-ablation percentages
+        df = data.pivot_table(index="dataset", columns="ablation", values="hit_frac", aggfunc="first").fillna(0.0)
+        abbreviations = {"Pred 0.90": "P90", "Label 0.90": "L90", "Pred 0.97": "P97", "Label 0.97": "L97"}
+        labels: List[str] = []
+        for ds in dataset_order:
+            parts: List[str] = []
+            for ab in ["Pred 0.90", "Label 0.90", "Pred 0.97", "Label 0.97"]:
+                if ds in df.index and ab in df.columns:
+                    pct = int(round(100 * float(df.loc[ds, ab])))
+                    parts.append(f"{abbreviations.get(ab, ab)}={pct}%")
+            suffix = f"  (Hit: {', '.join(parts)})" if parts else ""
+            labels.append(f"{ds}{suffix}")
+        ax.set_yticks(range(len(dataset_order)))
+        ax.set_yticklabels(labels)
+    else:
+        ax.set_yticks(range(len(dataset_order)))
+        ax.set_yticklabels(dataset_order)
     ax.set_xlabel(x_axis_label)
     ax.set_title(title)
     ax.grid(axis="x", linestyle="--", linewidth=0.5, alpha=0.5)
