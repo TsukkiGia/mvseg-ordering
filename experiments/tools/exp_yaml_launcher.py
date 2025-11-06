@@ -31,25 +31,42 @@ from experiments.dataset.multisegment2d import MultiBinarySegment2D
 def _validate_megamedical_cfg(cfg: dict[str, Any]) -> None:
     if not cfg.get("use_mega_dataset", False):
         return
-    triple = (cfg.get("mega_task"), cfg.get("mega_label"), cfg.get("mega_slicing"))
+
     idx = cfg.get("mega_target_index")
-    any_triple = any(v is not None for v in triple)
-    all_triple = all(v is not None for v in triple)
-    if any_triple and not all_triple:
+    triple = (cfg.get("mega_task"), cfg.get("mega_label"), cfg.get("mega_slicing"))
+
+    # Full specification provided – nothing else to verify.
+    if idx is not None or any(v is not None for v in triple):
+        return
+
+    # Automatic expansion without any filters is not allowed.
+    if not cfg.get("mega_dataset_name") and not any(v is not None for v in triple):
         raise ValueError(
-            "Invalid MegaMedical config: provide mega_task, mega_label, and mega_slicing together, or omit all three."
-        )
-    if (not any_triple) and idx is None:
-        raise ValueError(
-            "Invalid MegaMedical config: provide either mega_target_index or a full (mega_task, mega_label, mega_slicing) triple."
+            "Invalid MegaMedical config: provide mega_dataset_name or explicit mega_target_index/triple when using MegaMedical."
         )
 
 
 def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> list[dict[str, Any]]:
     merged = {**defaults, **exp}
-    dataset_name = merged.get("mega_dataset_name")
-    if not dataset_name:
+    if not merged.get("use_mega_dataset", False):
         return [exp]
+
+    # Explicit target already provided – nothing to expand.
+    if merged.get("mega_target_index") is not None:
+        return [exp]
+
+    dataset_name = merged.get("mega_dataset_name")
+    filter_task = merged.get("mega_task")
+    filter_label = merged.get("mega_label")
+    filter_slicing = merged.get("mega_slicing")
+    filter_axis = merged.get("mega_axis")
+    dataset_limit = int(merged.get("mega_dataset_limit", 50))
+    dataset_split = merged.get("mega_dataset_split", "train")
+
+    if not dataset_name:
+        raise ValueError(
+            "Auto-expanding MegaMedical configs require mega_dataset_name"
+        )
 
     dl = MultiBinarySegment2D(
         resolution=128,
@@ -61,17 +78,30 @@ def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> l
         target_size=1,
         sampling="hierarchical",
         slicing=["midslice", "maxslice"],
-        split="train",
+        split=dataset_split,
         context_split="same",
         datasets=DATASETS,
     )
     dl.init()
     task_df = dl.task_df.copy()
-    mask = task_df["task"].str.startswith(f"{dataset_name}/")
-    subset = task_df[mask]
+
+    subset = task_df
+    if dataset_name:
+        subset = subset[subset["task"].str.startswith(f"{dataset_name}/")]
+    if filter_task:
+        subset = subset[subset["task"] == filter_task]
+    if filter_label is not None:
+        subset = subset[subset["label"] == int(filter_label)]
+    if filter_slicing:
+        subset = subset[subset["slicing"] == filter_slicing]
+    if filter_axis is not None and "axis" in subset.columns:
+        subset = subset[subset["axis"] == filter_axis]
+
     if subset.empty:
         raise ValueError(
-            f"No MegaMedical tasks found for dataset={dataset_name!r} (split='train')."
+            "No MegaMedical tasks found with the provided filters "
+            f"(dataset_name={dataset_name!r}, mega_task={filter_task!r}, mega_label={filter_label!r}, "
+            f"mega_slicing={filter_slicing!r}, mega_axis={filter_axis!r})."
         )
 
     base_script_dir = Path(merged["script_dir"])
@@ -79,20 +109,29 @@ def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> l
     ablation_dir = base_script_dir.name
 
     expanded: list[dict[str, Any]] = []
-    for idx, row in subset.head(50).iterrows():
+    for idx, row in subset.head(dataset_limit).iterrows():
         base_component = row["task"].replace("/", "_")
         task_component = f"{base_component}_label{int(row['label'])}_{row['slicing']}_idx{int(idx)}"
         target_dir = base_root / task_component / ablation_dir
 
         cfg = dict(exp)
+        for key in (
+            "mega_dataset_name",
+            "mega_dataset_split",
+            "mega_task",
+            "mega_label",
+            "mega_slicing",
+            "mega_axis",
+            "mega_dataset_limit",
+        ):
+            cfg.pop(key, None)
+
         cfg["mega_target_index"] = int(idx)
         cfg["mega_task"] = row["task"]
         cfg["mega_label"] = int(row["label"])
         cfg["mega_slicing"] = row["slicing"]
         cfg["script_dir"] = str(target_dir)
         cfg["task_name"] = row["task"]
-        cfg.pop("mega_dataset_name", None)
-        cfg.pop("mega_dataset_split", None)
 
         base_name = exp.get("name", "exp")
         cfg["name"] = f"{base_name}_{task_component}_{idx}"
@@ -184,11 +223,6 @@ def main() -> None:
         choices=["A", "B"],
         default=None,
         help="If set, restrict to one plan.")
-    ap.add_argument(
-        "--expand-mega-dataset",
-        action="store_true",
-        help="Expand each experiment using mega_dataset_name into one run per MegaMedical task index.",
-    )
     args = ap.parse_args()
 
     data = yaml.safe_load(args.config.read_text())
@@ -199,11 +233,7 @@ def main() -> None:
 
     setups: list[tuple[str, ExperimentSetup]] = []
     for raw_exp in experiments:
-        expanded_entries = (
-            expand_megamedical_entry(defaults, raw_exp)
-            if args.expand_mega_dataset
-            else [raw_exp]
-        )
+        expanded_entries = expand_megamedical_entry(defaults, raw_exp)
         for exp in expanded_entries:
             plans = exp.get("plan", ["A"])  # default to Plan A
             for plan in plans:
