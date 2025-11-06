@@ -4,8 +4,7 @@ TODO.md
 MultiverSeg/
 ScribblePrompt/
 UniverSeg/
-experiments/**/results/
-experiments/**/results/
-experiments/**/results/**
 tmux*
 interview.ipynb
+experiments/scripts/*
+
