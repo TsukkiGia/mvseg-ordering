@@ -209,6 +209,22 @@ def main() -> None:
             for plan in plans:
                 if args.only_plan and plan != args.only_plan:
                     continue
+                cfg_for_plan = {**defaults, **exp}
+                script_dir_value = cfg_for_plan.get("script_dir")
+                if not script_dir_value:
+                    raise ValueError("Missing script_dir in experiment entry")
+                script_dir_path = Path(script_dir_value)
+
+                if plan == "A":
+                    marker = script_dir_path / "A" / "results" / "support_images_summary.csv"
+                else:
+                    marker = script_dir_path / "B" / "subset_support_images_summary.csv"
+
+                if marker.exists():
+                    print(
+                        f"[skip-existing] {exp.get('name','exp')}:{plan} — results already present at {marker}"
+                    )
+                    continue
                 setup = build_setup(defaults, exp, plan)
                 setups.append((f"{exp.get('name','exp')}:{plan}", setup))
 
