@@ -41,3 +41,22 @@ experiments:
     commit_ground_truth: false
     script_dir: experiments/scripts/experiment_acdc/commit_pred_97
     plan: [B]
+
+  - name: pred_95
+    dice_cutoff: 0.95
+    commit_ground_truth: false
+    script_dir: experiments/scripts/experiment_acdc/commit_pred_95
+    plan: [B]
+
+  - name: label_95
+    dice_cutoff: 0.95
+    commit_ground_truth: true
+    script_dir: experiments/scripts/experiment_acdc/commit_label_95
+    plan: [B]
+
+  - name: pred_97_iter50
+    dice_cutoff: 0.97
+    prompt_iterations: 50
+    commit_ground_truth: false
+    script_dir: experiments/scripts/experiment_acdc/commit_pred_97_iter50
+    plan: [B]

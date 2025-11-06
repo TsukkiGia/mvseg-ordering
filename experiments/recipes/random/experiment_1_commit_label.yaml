@@ -1,0 +1,26 @@
+version: 1
+
+# Launcher configuration for the historical "Experiment 1" commit-label setup.
+defaults:
+  prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
+  prompt_config_key: click_generator
+  prompt_iterations: 20
+  permutations: 100
+  no_visualize: true
+  device: cuda
+  shards: 4
+  experiment_seed: 23
+  plan_b_subset_size: 20
+
+experiments:
+  - name: commit_label_planA
+    dice_cutoff: 0.9
+    commit_ground_truth: true
+    script_dir: experiments/scripts/random/experiment_1_commit_label
+    plan: [A]
+
+  - name: commit_label_planB
+    dice_cutoff: 0.9
+    commit_ground_truth: true
+    script_dir: experiments/scripts/random/experiment_1_commit_label
+    plan: [B]
