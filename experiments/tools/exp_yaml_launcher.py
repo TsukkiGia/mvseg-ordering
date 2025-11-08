@@ -59,7 +59,7 @@ def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> l
     filter_task = merged.get("mega_task")
     filter_label = merged.get("mega_label")
     filter_slicing = merged.get("mega_slicing")
-    filter_axis = merged.get("mega_axis")
+    filter_axis = str(merged.get("mega_axis"))
     dataset_limit = int(merged.get("mega_dataset_limit", 50))
     dataset_split = merged.get("mega_dataset_split", "train")
 
