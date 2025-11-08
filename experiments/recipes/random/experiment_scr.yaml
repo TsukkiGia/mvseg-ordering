@@ -21,42 +21,42 @@ experiments:
   - name: label_90
     dice_cutoff: 0.9
     commit_ground_truth: true
-    script_dir: experiments/scripts/experiment_scr/commit_label_90
+    script_dir: experiments/scripts/random/experiment_scr/commit_label_90
     plan: [B]
 
   - name: label_97
     dice_cutoff: 0.97
     commit_ground_truth: true
-    script_dir: experiments/scripts/experiment_scr/commit_label_97
+    script_dir: experiments/scripts/random/experiment_scr/commit_label_97
     plan: [B]
 
   - name: pred_90
     dice_cutoff: 0.9
     commit_ground_truth: false
-    script_dir: experiments/scripts/experiment_scr/commit_pred_90
+    script_dir: experiments/scripts/random/experiment_scr/commit_pred_90
     plan: [B]
 
   - name: pred_97
     dice_cutoff: 0.97
     commit_ground_truth: false
-    script_dir: experiments/scripts/experiment_scr/commit_pred_97
+    script_dir: experiments/scripts/random/experiment_scr/commit_pred_97
     plan: [B]
 
   - name: pred_95
     dice_cutoff: 0.95
     commit_ground_truth: false
-    script_dir: experiments/scripts/experiment_scr/commit_pred_95
+    script_dir: experiments/scripts/random/experiment_scr/commit_pred_95
     plan: [B]
 
   - name: label_95
     dice_cutoff: 0.95
     commit_ground_truth: true
-    script_dir: experiments/scripts/experiment_scr/commit_label_95
+    script_dir: experiments/scripts/random/experiment_scr/commit_label_95
     plan: [B]
 
   - name: pred_97_iter50
     dice_cutoff: 0.97
     prompt_iterations: 50
     commit_ground_truth: false
-    script_dir: experiments/scripts/experiment_scr/commit_pred_97_iter50
+    script_dir: experiments/scripts/random/experiment_scr/commit_pred_97_iter50
     plan: [B]

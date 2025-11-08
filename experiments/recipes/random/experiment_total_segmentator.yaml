@@ -8,36 +8,56 @@ defaults:
   permutations: 100
   use_mega_dataset: true
   mega_dataset_name: TotalSegmentator
-  mega_dataset_size: 75
+  mega_slicing: maxslice
+  mega_axis: 2
+  mega_dataset_limit: 50 
+  mega_dataset_size: 100
   no_visualize: true
   device: cuda
-  shards: 4
+  shards: 8
   experiment_seed: 23
-  eval_fraction: 0.25
-  eval_checkpoints: [5, 10, 20, 50]
   plan_b_subset_size: 10
 
 experiments:
   - name: label_90
     dice_cutoff: 0.9
     commit_ground_truth: true
-    script_dir: experiments/scripts/experiment_total_segmentator/commit_label_90
+    script_dir: experiments/scripts/random/experiment_total_segmentator/commit_label_90
     plan: [B]
 
   - name: label_97
     dice_cutoff: 0.97
     commit_ground_truth: true
-    script_dir: experiments/scripts/experiment_total_segmentator/commit_label_97
+    script_dir: experiments/scripts/random/experiment_total_segmentator/commit_label_97
     plan: [B]
 
   - name: pred_90
     dice_cutoff: 0.9
     commit_ground_truth: false
-    script_dir: experiments/scripts/experiment_total_segmentator/commit_pred_90
+    script_dir: experiments/scripts/random/experiment_total_segmentator/commit_pred_90
     plan: [B]
 
   - name: pred_97
     dice_cutoff: 0.97
     commit_ground_truth: false
-    script_dir: experiments/scripts/experiment_total_segmentator/commit_pred_97
+    script_dir: experiments/scripts/random/experiment_total_segmentator/commit_pred_97
+    plan: [B]
+
+  - name: pred_95
+    dice_cutoff: 0.95
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random/experiment_total_segmentator/commit_pred_95
+    plan: [B]
+
+  - name: label_95
+    dice_cutoff: 0.95
+    commit_ground_truth: true
+    script_dir: experiments/scripts/random/experiment_total_segmentator/commit_label_95
+    plan: [B]
+
+  - name: pred_97_iter50
+    dice_cutoff: 0.97
+    prompt_iterations: 50
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random/experiment_total_segmentator/commit_pred_97_iter50
     plan: [B]
