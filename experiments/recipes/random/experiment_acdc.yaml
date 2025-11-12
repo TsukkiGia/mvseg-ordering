@@ -8,13 +8,13 @@ defaults:
   permutations: 100
   use_mega_dataset: true
   mega_dataset_name: ACDC
-  mega_dataset_size: 100
+  mega_dataset_size: 15
   no_visualize: true
   device: cuda
-  shards: 4
+  shards: 8
   experiment_seed: 23
-  eval_fraction: 0.25
-  eval_checkpoints: [5, 10, 20, 50]
+  eval_fraction: 0.33
+  eval_checkpoints: [1, 2, 4, 8, 10]
   plan_b_subset_size: 10
 
 experiments:
@@ -22,41 +22,41 @@ experiments:
     dice_cutoff: 0.9
     commit_ground_truth: true
     script_dir: experiments/scripts/random/experiment_acdc/commit_label_90
-    plan: [B]
+    plan: [A, B]
 
   - name: label_97
     dice_cutoff: 0.97
     commit_ground_truth: true
     script_dir: experiments/scripts/random/experiment_acdc/commit_label_97
-    plan: [B]
+    plan: [A, B]
 
   - name: pred_90
     dice_cutoff: 0.9
     commit_ground_truth: false
     script_dir: experiments/scripts/random/experiment_acdc/commit_pred_90
-    plan: [B]
+    plan: [A, B]
 
   - name: pred_97
     dice_cutoff: 0.97
     commit_ground_truth: false
     script_dir: experiments/scripts/random/experiment_acdc/commit_pred_97
-    plan: [B]
+    plan: [A, B]
 
   - name: pred_95
     dice_cutoff: 0.95
     commit_ground_truth: false
     script_dir: experiments/scripts/random/experiment_acdc/commit_pred_95
-    plan: [B]
+    plan: [A, B]
 
   - name: label_95
     dice_cutoff: 0.95
     commit_ground_truth: true
     script_dir: experiments/scripts/random/experiment_acdc/commit_label_95
-    plan: [B]
+    plan: [A, B]
 
   - name: pred_97_iter50
     dice_cutoff: 0.97
     prompt_iterations: 50
     commit_ground_truth: false
     script_dir: experiments/scripts/random/experiment_acdc/commit_pred_97_iter50
-    plan: [B]
+    plan: [A, B]
