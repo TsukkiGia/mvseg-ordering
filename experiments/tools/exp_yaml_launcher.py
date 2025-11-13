@@ -46,44 +46,50 @@ def _validate_megamedical_cfg(cfg: dict[str, Any]) -> None:
         )
 
 
-def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> list[dict[str, Any]]:
+def expand_megamedical_entry(
+    defaults: dict[str, Any],
+    exp: dict[str, Any],
+    mega_loader: MultiBinarySegment2D | None,
+) -> tuple[list[dict[str, Any]], MultiBinarySegment2D | None]:
     merged = {**defaults, **exp}
     if not merged.get("use_mega_dataset", False):
-        return [exp]
+        return [exp], mega_loader
 
     # Explicit target already provided – nothing to expand.
     if merged.get("mega_target_index") is not None:
-        return [exp]
+        return [exp], mega_loader
 
     dataset_name = merged.get("mega_dataset_name")
     filter_task = merged.get("mega_task")
     filter_label = merged.get("mega_label")
     filter_slicing = merged.get("mega_slicing")
-    filter_axis = str(merged.get("mega_axis"))
+    filter_axis = merged.get("mega_axis")
     dataset_limit = int(merged.get("mega_dataset_limit", 50))
-    dataset_split = merged.get("mega_dataset_split", "train")
+    dataset_split = str(merged.get("mega_dataset_split", "train")).strip()
 
     if not dataset_name:
         raise ValueError(
             "Auto-expanding MegaMedical configs require mega_dataset_name"
         )
 
-    dl = MultiBinarySegment2D(
-        resolution=128,
-        allow_instance=False,
-        min_label_density=3e-3,
-        preload=False,
-        samples_per_epoch=1000,
-        support_size=4,
-        target_size=1,
-        sampling="hierarchical",
-        slicing=["midslice", "maxslice"],
-        split=dataset_split,
-        context_split="same",
-        datasets=DATASETS,
-    )
-    dl.init()
-    task_df = dl.task_df.copy()
+    loader = mega_loader
+    if loader is None or loader.split != dataset_split:
+        loader = MultiBinarySegment2D(
+            resolution=128,
+            allow_instance=False,
+            min_label_density=3e-3,
+            preload=False,
+            samples_per_epoch=1000,
+            support_size=4,
+            target_size=1,
+            sampling="hierarchical",
+            slicing=["midslice", "maxslice"],
+            split=dataset_split,
+            context_split="same",
+            datasets=DATASETS,
+        )
+        loader.init()
+    task_df = loader.task_df.copy()
 
     subset = task_df
     if dataset_name:
@@ -95,7 +101,7 @@ def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> l
     if filter_slicing:
         subset = subset[subset["slicing"] == filter_slicing]
     if filter_axis is not None and "axis" in subset.columns:
-        subset = subset[subset["axis"] == filter_axis]
+        subset = subset[subset["axis"] == str(filter_axis)]
 
     if subset.empty:
         raise ValueError(
@@ -117,7 +123,6 @@ def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> l
         cfg = dict(exp)
         for key in (
             "mega_dataset_name",
-            "mega_dataset_split",
             "mega_task",
             "mega_label",
             "mega_slicing",
@@ -126,6 +131,8 @@ def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> l
         ):
             cfg.pop(key, None)
 
+        # Preserve the resolved split so build_setup can honor it.
+        cfg["mega_dataset_split"] = dataset_split
         cfg["mega_target_index"] = int(idx)
         cfg["mega_task"] = row["task"]
         cfg["mega_label"] = int(row["label"])
@@ -136,7 +143,7 @@ def expand_megamedical_entry(defaults: dict[str, Any], exp: dict[str, Any]) -> l
         base_name = exp.get("name", "exp")
         cfg["name"] = f"{base_name}_{task_component}_{idx}"
         expanded.append(cfg)
-    return expanded
+    return expanded, loader
 
 
 def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> ExperimentSetup:
@@ -171,7 +178,7 @@ def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> Exp
             task=cfg.get("mega_task"),
             label=cfg.get("mega_label"),
             slicing=cfg.get("mega_slicing"),
-            split="train",
+            split=cfg.get("mega_dataset_split", "train"),
             seed=cfg.get("experiment_seed", 23),
             dataset_size=cfg.get("mega_dataset_size"),
         )
@@ -231,9 +238,26 @@ def main() -> None:
     if not experiments:
         raise SystemExit("No experiments found in config")
 
-    setups: list[tuple[str, ExperimentSetup]] = []
+    target_groups: dict[str, list[tuple[str, ExperimentSetup]]] = {}
+    target_order: list[str] = []
+    dataset_split = str(defaults.get("mega_dataset_split", "train")).strip()
+    mega_loader: MultiBinarySegment2D | None = MultiBinarySegment2D(
+            resolution=128,
+            allow_instance=False,
+            min_label_density=3e-3,
+            preload=False,
+            samples_per_epoch=1000,
+            support_size=4,
+            target_size=1,
+            sampling="hierarchical",
+            slicing=["midslice", "maxslice"],
+            split=dataset_split,
+            context_split="same",
+            datasets=DATASETS,
+        )
+    mega_loader.init()
     for raw_exp in experiments:
-        expanded_entries = expand_megamedical_entry(defaults, raw_exp)
+        expanded_entries, mega_loader = expand_megamedical_entry(defaults, raw_exp, mega_loader)
         for exp in expanded_entries:
             plans = exp.get("plan", ["A"])  # default to Plan A
             for plan in plans:
@@ -256,7 +280,15 @@ def main() -> None:
                     )
                     continue
                 setup = build_setup(defaults, exp, plan)
-                setups.append((f"{exp.get('name','exp')}:{plan}", setup))
+                target_key = exp.get("task_name") or f"script::{setup.script_dir}"
+                if target_key not in target_groups:
+                    target_groups[target_key] = []
+                    target_order.append(target_key)
+                target_groups[target_key].append((f"{exp.get('name','exp')}:{plan}", setup))
+
+    setups: list[tuple[str, ExperimentSetup]] = []
+    for key in target_order:
+        setups.extend(target_groups[key])
 
     for tag, setup in setups:
         # Enriched dry-run summary for quick verification

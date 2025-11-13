@@ -67,7 +67,7 @@ experiments:
     mega_dataset_size: 15
     plan: [A]
 
-    - name: label_90
+  - name: label_90
     dice_cutoff: 0.9
     commit_ground_truth: true
     script_dir: experiments/scripts/random/experiment_acdc/commit_label_90
