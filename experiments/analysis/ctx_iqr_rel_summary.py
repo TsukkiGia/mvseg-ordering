@@ -8,32 +8,57 @@ For each input Plan A results (eval_image_summary.csv), this script:
   3) Normalises per task: IQR_rel(k) = IQR(k) / max(IQR(k0), eps)
   4) Aggregates across tasks to produce mean IQR_rel and 95% CI per k
 
-Inputs can be any mix of:
-  - eval CSV paths (.../A/results/eval_image_summary.csv)
-  - Plan A results directories (.../A or .../A/results)
-  - Commit directories containing A/ (the script will locate the CSV)
+Inputs are automatically discovered under experiments/scripts for the default
+Pred/Label × {0.90, 0.97} ablations (matching FAMILY_ROOTS), and you can also
+add arbitrary eval CSVs or directories on the command line if needed.
 
 Outputs:
-  - A consolidated CSV with per-(commit_type, cutoff, k) mean IQR_rel and 95% CI
-  - Optional line plots with CI bands per variant
+  - A consolidated CSV with per-(variant, cutoff, k) mean IQR_rel and bootstrap 95% CI
+  - Optional long-form CSV of per-task curves for downstream analysis
 """
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional, Tuple, List
+from typing import Dict, Iterable, Optional, Tuple, List, DefaultDict
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
-from .results_plot import compute_ctx_perm, summarise_ctx, _ensure_dir
+from .results_plot import compute_ctx_perm, summarise_ctx
 
 
 DEFAULT_BASELINE_K = 1
+BOOTSTRAP_SAMPLES = 2000
+BOOTSTRAP_ALPHA = 0.05
+_BOOTSTRAP_RNG = np.random.default_rng(0)
 
 
+FAMILY_ROOTS: Dict[str, str] = {
+    "experiment_acdc": "ACDC",
+    "experiment_btcv": "BTCV",
+    "experiment_buid": "BUID",
+    "experiment_hipxray": "HipXRay",
+    "experiment_pandental": "PanDental",
+    "experiment_scd": "SCD",
+    "experiment_scr": "SCR",
+    "experiment_spineweb": "SpineWeb",
+    "experiment_stare": "STARE",
+    "experiment_t1mix": "T1mix",
+    "experiment_wbc": "WBC",
+    "experiment_total_segmentator": "TotalSegmentator",
+}
+
+VARIANT_COMMITS = [
+    ("commit_pred_90", "Pred 0.90"),
+    ("commit_label_90", "Label 0.90"),
+    ("commit_pred_97", "Pred 0.97"),
+    ("commit_label_97", "Label 0.97"),
+]
+DEFAULT_COMMIT_DIRS = [slug for slug, _ in VARIANT_COMMITS]
+VARIANT_LABELS = {slug: label for slug, label in VARIANT_COMMITS}
 def _find_eval_csv(path: Path) -> Optional[Path]:
     """Resolve a user-supplied path to eval_image_summary.csv if possible."""
     if path.is_file() and path.name == "eval_image_summary.csv":
@@ -51,18 +76,92 @@ def _find_eval_csv(path: Path) -> Optional[Path]:
     return None
 
 
-def _infer_task_from_path(csv_path: Path) -> str:
-    """Try to infer the task identifier from the directory structure.
+def _task_family_from_path(csv_path: Path) -> Tuple[Optional[str], Optional[str]]:
+    """Return (task_label, family) if the path contains a known experiment root."""
+    parts = csv_path.parts
+    for idx, part in enumerate(parts):
+        if part in FAMILY_ROOTS:
+            family = FAMILY_ROOTS[part]
+            task_component = parts[idx + 1] if idx + 1 < len(parts) else ""
+            task_label = f"{family} — {task_component}" if task_component else family
+            return task_label, family
+    return None, None
 
-    Expected layout: .../<task_component>/<ablation>/A/results/eval_image_summary.csv
-    We pick the folder immediately above the ablation directory.
-    """
+
+def _default_task_label(csv_path: Path) -> str:
     try:
-        # eval_image_summary.csv -> results -> A -> <ablation> -> <task_component>
-        task_component = csv_path.parent.parent.parent.parent.name
-        return str(task_component)
-    except Exception:
-        return "unknown_task"
+        return str(csv_path.parents[3])  # .../<task>/<commit>/A/results/eval.csv
+    except IndexError:
+        return str(csv_path.parent)
+
+
+def _iter_script_eval_csvs(
+    repo_root: Path,
+    *,
+    commit_dirs: Optional[Iterable[str]] = None,
+    include_families: Optional[List[str]] = None,
+    procedure: Optional[str] = None,
+) -> Iterable[Tuple[str, Path, str, str]]:
+    """Yield (task_label, eval_csv_path, family, commit_dir) discovered under experiments/scripts."""
+    scripts_root = repo_root / "experiments" / "scripts"
+    if procedure:
+        scripts_root = scripts_root / procedure
+
+    commit_dirs = list(commit_dirs) if commit_dirs else DEFAULT_COMMIT_DIRS
+
+    if include_families:
+        allow = {
+            root for root, fam in FAMILY_ROOTS.items()
+            if fam in include_families or root in include_families
+        }
+    else:
+        allow = set(FAMILY_ROOTS.keys())
+
+    for root_name in sorted(allow):
+        family = FAMILY_ROOTS[root_name]
+        root_path = scripts_root / root_name
+        if not root_path.exists():
+            continue
+        for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
+            task_label = f"{family} — {task_dir.name}"
+            for commit_dir in commit_dirs:
+                eval_csv = task_dir / commit_dir / "A" / "results" / "eval_image_summary.csv"
+                if eval_csv.exists():
+                    yield task_label, eval_csv, family, commit_dir
+
+
+def _detect_commit_dir(csv_path: Path) -> Optional[str]:
+    parts = set(csv_path.parts)
+    for slug in DEFAULT_COMMIT_DIRS:
+        if slug in parts:
+            return slug
+    return None
+
+
+def _make_task_item(
+    task_hint: Optional[str],
+    csv_path: Path,
+    family_hint: Optional[str],
+    metric: str,
+) -> Optional[TaskCtxIQRRel]:
+    df = _load_eval(csv_path)
+    if df.empty:
+        return None
+    task_label = task_hint or _default_task_label(csv_path)
+    if "task_name" not in df.columns:
+        df = df.copy()
+        df["task_name"] = task_label
+    item = _compute_task_iqr_rel(df, metric=metric)
+    item.task = task_label or item.task
+    if family_hint:
+        item.family = family_hint
+    elif not item.family:
+        _, fam_from_path = _task_family_from_path(csv_path)
+        if fam_from_path:
+            item.family = fam_from_path
+        else:
+            item.family = _family_from_task_name(item.task)
+    return item
 
 
 def _family_from_task_name(task_name: str) -> str:
@@ -99,7 +198,6 @@ class TaskCtxIQRRel:
 def _compute_task_iqr_rel(
     df: pd.DataFrame,
     metric: str,
-    baseline_k: int = DEFAULT_BASELINE_K,
     eps: float = 1e-8,
 ) -> TaskCtxIQRRel:
     # Per-permutation reduction at each k
@@ -109,7 +207,7 @@ def _compute_task_iqr_rel(
     stats["iqr"] = stats["q3"] - stats["q1"]
 
     # Baseline IQR at k=baseline_k (default k=1). If missing, use smallest k>0
-    base_row = stats[stats["context_size"] == baseline_k]
+    base_row = stats[stats["context_size"] == DEFAULT_BASELINE_K]
     if base_row.empty:
         # Prefer the smallest k>0 if present, otherwise the very first available k
         gt0 = stats[stats["context_size"] > 0]
@@ -135,7 +233,7 @@ def _compute_task_iqr_rel(
     )
 
 
-def _mean_ci_95(values: np.ndarray) -> Tuple[float, float, float]:
+def _bootstrap_mean_ci(values: np.ndarray) -> Tuple[float, float, float]:
     values = np.asarray(values, dtype=float)
     n = int(values.size)
     if n == 0:
@@ -143,80 +241,61 @@ def _mean_ci_95(values: np.ndarray) -> Tuple[float, float, float]:
     mean = float(np.mean(values))
     if n == 1:
         return mean, mean, mean
-    se = float(np.std(values, ddof=1)) / np.sqrt(n)
-    # t critical ~ 1.96 for large n; use scipy if available, else approximate
-    from math import sqrt
-    # Simple approximation for 95% CI with small n (df=n-1)
-    # For df<=30, a rough multiplier ~2.26 (df=9) down to ~2.04 (df=29).
-    # We'll use 2.26 for n<=10, else 2.0.
-    t_mult = 2.26 if n <= 10 else 2.0
-    lo, hi = mean - t_mult * se, mean + t_mult * se
+    indices = _BOOTSTRAP_RNG.integers(0, n, size=(BOOTSTRAP_SAMPLES, n))
+    sample_means = values[indices].mean(axis=1)
+    alpha = BOOTSTRAP_ALPHA / 2.0
+    lo = float(np.quantile(sample_means, alpha))
+    hi = float(np.quantile(sample_means, 1.0 - alpha))
     return mean, lo, hi
 
 
-def aggregate_iqr_rel_across_tasks(
-    items: List[TaskCtxIQRRel],
-    *,
-    label: str,
-    output_csv: Path,
-    output_plot: Optional[Path] = None,
-) -> pd.DataFrame:
-    """Aggregate per-task IQR_rel(k) to dataset-level mean and CI per k.
-
-    items must all belong to the same variant (commit_type, cutoff) for a clear plot;
-    the returned DataFrame includes those fields if present and is written to CSV.
-    """
+def _summarise_items(items: List[TaskCtxIQRRel], label: str) -> pd.DataFrame:
     if not items:
         raise ValueError("No per-task IQR_rel items to aggregate.")
 
-    # Collect unique ks across tasks
     ks = sorted({int(k) for it in items for k in it.table["context_size"].unique()})
     rows = []
-    commit_type = next((it.commit_type for it in items if it.commit_type is not None), None)
-    dice_cutoff = next((it.dice_cutoff for it in items if it.dice_cutoff is not None), None)
+    commit_types = {it.commit_type for it in items if it.commit_type is not None}
+    dice_cutoffs = {it.dice_cutoff for it in items if it.dice_cutoff is not None}
+    if len(commit_types) > 1:
+        raise ValueError(f"Multiple commit_type values found: {sorted(commit_types)}")
+    if len(dice_cutoffs) > 1:
+        raise ValueError(f"Multiple dice_cutoff values found: {sorted(dice_cutoffs)}")
+    commit_type = next(iter(commit_types)) if commit_types else None
+    dice_cutoff = next(iter(dice_cutoffs)) if dice_cutoffs else None
 
     for k in ks:
-        vals = [
+        subset = [
             float(it.table.loc[it.table["context_size"] == k, "iqr_rel"].iloc[0])
             for it in items
             if (it.table["context_size"] == k).any()
         ]
-        mean, lo, hi = _mean_ci_95(np.array(vals, dtype=float))
+        mean, lo, hi = _bootstrap_mean_ci(np.array(subset, dtype=float))
         rows.append({
             "label": label,
             "commit_type": commit_type,
             "dice_cutoff": dice_cutoff,
             "context_size": k,
-            "n_tasks": len(vals),
+            "n_tasks": len(subset),
             "iqr_rel_mean": mean,
             "iqr_rel_ci_lo": lo,
             "iqr_rel_ci_hi": hi,
         })
-    out = pd.DataFrame(rows).sort_values("context_size").reset_index(drop=True)
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(output_csv, index=False)
 
-    if output_plot is not None:
-        fig, ax = plt.subplots(figsize=(7, 4))
-        ax.plot(out["context_size"], out["iqr_rel_mean"], color="royalblue", marker="o")
-        ax.fill_between(out["context_size"], out["iqr_rel_ci_lo"], out["iqr_rel_ci_hi"],
-                        color="royalblue", alpha=0.2, linewidth=0)
-        title_bits = [label]
-        if commit_type:
-            title_bits.append(str(commit_type))
-        if dice_cutoff is not None:
-            title_bits.append(f"cutoff={dice_cutoff}")
-        ax.set_title("IQR_rel vs Context Size — " + " · ".join(title_bits))
-        ax.set_xlabel("Context Size (k)")
-        ax.set_ylabel("Relative IQR (w.r.t k=0)")
-        ax.set_ylim(0, max(1.05, float(out["iqr_rel_ci_hi"].max()) * 1.05))
-        ax.grid(alpha=0.3)
-        output_plot.parent.mkdir(parents=True, exist_ok=True)
-        fig.tight_layout()
-        fig.savefig(output_plot, dpi=200)
-        plt.close(fig)
+    return pd.DataFrame(rows).sort_values("context_size").reset_index(drop=True)
 
-    return out
+
+def _summarise_by_family(items: List[TaskCtxIQRRel]) -> pd.DataFrame:
+    families = sorted({it.family or "unknown" for it in items})
+    frames: List[pd.DataFrame] = []
+    for fam in families:
+        fam_items = [it for it in items if (it.family or "unknown") == fam]
+        if not fam_items:
+            continue
+        fam_df = _summarise_items(fam_items, label=fam)
+        fam_df.insert(0, "family", fam)
+        frames.append(fam_df)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
 def _write_long_table(items: List[TaskCtxIQRRel], out_csv: Path) -> None:
@@ -241,99 +320,85 @@ def _write_long_table(items: List[TaskCtxIQRRel], out_csv: Path) -> None:
     df.to_csv(out_csv, index=False)
 
 
-def aggregate_by_family(
-    items: List[TaskCtxIQRRel],
-    *,
-    output_csv: Path,
-    per_family_plot_dir: Optional[Path] = None,
-) -> pd.DataFrame:
-    """Aggregate IQR_rel across tasks split by dataset family.
-
-    Produces a single CSV combining all families and optional per-family plots.
-    """
-    if not items:
-        raise ValueError("No items to aggregate")
-
-    families = sorted({it.family or "unknown" for it in items})
-    frames: List[pd.DataFrame] = []
-    for fam in families:
-        fam_items = [it for it in items if (it.family or "unknown") == fam]
-        if not fam_items:
-            continue
-        fam_csv = output_csv.parent / f"ctx_iqr_rel_{fam}.csv"
-        fam_plot = (per_family_plot_dir / f"ctx_iqr_rel_{fam}.png") if per_family_plot_dir else None
-        out = aggregate_iqr_rel_across_tasks(
-            fam_items,
-            label=fam,
-            output_csv=fam_csv,
-            output_plot=fam_plot,
-        )
-        out.insert(0, "family", fam)
-        frames.append(out)
-
-    combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_csv(output_csv, index=False)
-    return combined
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description="Aggregate IQR_rel(k) across tasks for Plan C evals.")
-    ap.add_argument("inputs", type=Path, nargs="+", help="Paths to eval CSVs or A/ directories")
+    ap.add_argument("inputs", type=Path, nargs="*", help="Optional extra eval CSV paths or directories to include")
+    ap.add_argument("--family", action="append", help="Restrict discovery to these dataset families (ACDC, BTCV, ...)")
+    ap.add_argument("--procedure", type=str, default=None, help="Optional subfolder under experiments/scripts to scan (e.g., 'random')")
     ap.add_argument("--metric", type=str, default="final_dice", help="Metric (final_dice|initial_dice|iterations_used)")
-    ap.add_argument("--baseline-k", type=int, default=DEFAULT_BASELINE_K, help="Baseline k for IQR_rel (default: 1)")
-    ap.add_argument("--label", type=str, default="dataset", help="Label used in outputs (e.g., dataset name)")
-    ap.add_argument("--out-csv", type=Path, default=Path("figures/ctx_iqr_rel_summary.csv"))
-    ap.add_argument("--out-plot", type=Path, default=None)
-    ap.add_argument("--by-family", action="store_true", help="Aggregate separately by dataset family (parsed from task_name)")
+    ap.add_argument("--label", type=str, default="dataset", help="Base label used in outputs (will be combined with ablation name)")
+    ap.add_argument("--out-csv", type=Path, default=Path("figures/ctx_iqr_rel_summary.csv"), help="Path for the combined summary across all ablations")
+    ap.add_argument("--by-family", action="store_true", help="Aggregate separately by dataset family")
     ap.add_argument("--out-long", type=Path, default=None, help="Optional path to write long per-task table of IQR and IQR_rel")
-    ap.add_argument("--per-family-dir", type=Path, default=None, help="Optional directory to save per-family plots")
     args = ap.parse_args()
 
-    resolved: List[Tuple[str, Path]] = []
+    resolved: DefaultDict[str, List[Tuple[Optional[str], Path, Optional[str]]]] = defaultdict(list)
+
+    repo_root = Path(__file__).resolve().parents[2]
+    discovered = list(
+        _iter_script_eval_csvs(
+            repo_root,
+            include_families=args.family,
+            procedure=args.procedure,
+        )
+    )
+    if not discovered:
+        print("[warn] No eval_image_summary.csv files found under experiments/scripts.")
+    else:
+        print(f"[info] Auto-discovered {len(discovered)} eval CSVs across default ablations.")
+    for task_label, csvp, family, commit_dir in discovered:
+        resolved[commit_dir].append((task_label, csvp, family))
+
     for p in args.inputs:
         csvp = _find_eval_csv(p)
         if csvp is None:
             print(f"[skip] Could not resolve eval_image_summary.csv for {p}")
             continue
-        task = _infer_task_from_path(csvp)
-        resolved.append((task, csvp))
+        task_hint, family_hint = _task_family_from_path(csvp)
+        variant = _detect_commit_dir(csvp) or "manual"
+        resolved[variant].append((task_hint, csvp, family_hint))
 
-    if not resolved:
+    if not any(resolved.values()):
         raise SystemExit("No valid eval_image_summary.csv inputs found.")
 
-    items: List[TaskCtxIQRRel] = []
-    for task, csvp in resolved:
-        df = _load_eval(csvp)
-        if df.empty:
-            continue
-        # attach task name for downstream consumption if not present
-        if "task_name" not in df.columns:
-            df = df.copy()
-            df["task_name"] = task
-        item = _compute_task_iqr_rel(df, metric=args.metric, baseline_k=args.baseline_k)
-        # ensure task/family set from path if missing
-        item.task = task or item.task
-        if not item.family:
-            item.family = _family_from_task_name(item.task)
-        items.append(item)
+    combined_frames: List[pd.DataFrame] = []
+    all_items: List[TaskCtxIQRRel] = []
 
-    if not items:
+    for variant, entries in sorted(resolved.items()):
+        variant_items: List[TaskCtxIQRRel] = []
+        for task_hint, csvp, family_hint in entries:
+            item = _make_task_item(task_hint, csvp, family_hint, metric=args.metric)
+            if item is None:
+                continue
+            variant_items.append(item)
+            all_items.append(item)
+
+        if not variant_items:
+            continue
+
+        variant_pretty = VARIANT_LABELS.get(variant, variant)
+        label = variant_pretty if args.label == "dataset" else f"{args.label} — {variant_pretty}"
+        if args.by_family:
+            variant_df = _summarise_by_family(variant_items)
+        else:
+            variant_df = _summarise_items(variant_items, label=label)
+
+        if variant_df.empty:
+            continue
+
+        variant_df.insert(0, "variant", variant)
+        variant_df.insert(1, "variant_label", variant_pretty)
+        combined_frames.append(variant_df)
+
+    if not combined_frames:
         raise SystemExit("No non-empty eval datasets found.")
 
-    if args.out_long is not None:
-        _write_long_table(items, args.out_long)
+    combined = pd.concat(combined_frames, ignore_index=True)
+    args.out_csv.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_csv(args.out_csv, index=False)
 
-    if args.by_family:
-        per_dir = args.per_family_dir if args.per_family_dir is not None else None
-        aggregate_by_family(items, output_csv=args.out_csv, per_family_plot_dir=per_dir)
-    else:
-        aggregate_iqr_rel_across_tasks(
-            items,
-            label=args.label,
-            output_csv=args.out_csv,
-            output_plot=args.out_plot,
-        )
+    if args.out_long is not None and all_items:
+        _write_long_table(all_items, args.out_long)
 
 
 if __name__ == "__main__":

@@ -8,36 +8,67 @@ defaults:
   permutations: 100
   use_mega_dataset: true
   mega_dataset_name: PanDental
-  mega_dataset_size: 75
   no_visualize: true
   device: cuda
   shards: 4
   experiment_seed: 23
-  eval_fraction: 0.25
-  eval_checkpoints: [5, 10, 20, 50]
+  eval_fraction: 0.33
+  eval_checkpoints: [1, 2, 4, 8, 10]
   plan_b_subset_size: 10
 
 experiments:
   - name: label_90
     dice_cutoff: 0.9
     commit_ground_truth: true
+    mega_dataset_size: 75
     script_dir: experiments/scripts/random/experiment_pandental/commit_label_90
     plan: [B]
 
   - name: label_97
     dice_cutoff: 0.97
     commit_ground_truth: true
+    mega_dataset_size: 75
     script_dir: experiments/scripts/random/experiment_pandental/commit_label_97
     plan: [B]
 
   - name: pred_90
     dice_cutoff: 0.9
     commit_ground_truth: false
+    mega_dataset_size: 75
     script_dir: experiments/scripts/random/experiment_pandental/commit_pred_90
     plan: [B]
 
   - name: pred_97
     dice_cutoff: 0.97
     commit_ground_truth: false
+    mega_dataset_size: 75
     script_dir: experiments/scripts/random/experiment_pandental/commit_pred_97
     plan: [B]
+
+  - name: label_90
+    dice_cutoff: 0.9
+    commit_ground_truth: true
+    mega_dataset_size: 15
+    script_dir: experiments/scripts/random/experiment_pandental/commit_label_90
+    plan: [A]
+
+  - name: label_97
+    dice_cutoff: 0.97
+    commit_ground_truth: true
+    mega_dataset_size: 15
+    script_dir: experiments/scripts/random/experiment_pandental/commit_label_97
+    plan: [A]
+
+  - name: pred_90
+    dice_cutoff: 0.9
+    commit_ground_truth: false
+    mega_dataset_size: 15
+    script_dir: experiments/scripts/random/experiment_pandental/commit_pred_90
+    plan: [A]
+
+  - name: pred_97
+    dice_cutoff: 0.97
+    commit_ground_truth: false
+    mega_dataset_size: 15
+    script_dir: experiments/scripts/random/experiment_pandental/commit_pred_97
+    plan: [A]

@@ -13,11 +13,61 @@ defaults:
   device: cuda
   shards: 4
   experiment_seed: 23
-  eval_fraction: 0.25
-  eval_checkpoints: [5, 10, 20, 50]
+  eval_fraction: 0.33
+  eval_checkpoints: [1, 2, 4, 8, 10]
   plan_b_subset_size: 10
 
 experiments:
+  - name: label_90
+    dice_cutoff: 0.9
+    commit_ground_truth: true
+    script_dir: experiments/scripts/random/experiment_btcv/commit_label_90
+    mega_dataset_size: 15
+    plan: [A]
+
+  - name: label_97
+    dice_cutoff: 0.97
+    commit_ground_truth: true
+    script_dir: experiments/scripts/random/experiment_btcv/commit_label_97
+    mega_dataset_size: 15
+    plan: [A]
+
+  - name: pred_90
+    dice_cutoff: 0.9
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random/experiment_btcv/commit_pred_90
+    mega_dataset_size: 15
+    plan: [A]
+
+  - name: pred_97
+    dice_cutoff: 0.97
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random/experiment_btcv/commit_pred_97
+    mega_dataset_size: 15
+    plan: [A]
+
+  # - name: pred_95
+  #   dice_cutoff: 0.95
+  #   commit_ground_truth: false
+  #   script_dir: experiments/scripts/random/experiment_btcv/commit_pred_95
+  #   mega_dataset_size: 15
+  #   plan: [A]
+
+  # - name: label_95
+  #   dice_cutoff: 0.95
+  #   commit_ground_truth: true
+  #   script_dir: experiments/scripts/random/experiment_btcv/commit_label_95
+  #   mega_dataset_size: 15
+  #   plan: [A]
+
+  # - name: pred_97_iter50
+  #   dice_cutoff: 0.97
+  #   prompt_iterations: 50
+  #   commit_ground_truth: false
+  #   script_dir: experiments/scripts/random/experiment_btcv/commit_pred_97_iter50
+  #   mega_dataset_size: 15
+  #   plan: [A]
+
   - name: label_90
     dice_cutoff: 0.9
     commit_ground_truth: true

@@ -425,6 +425,7 @@ class MVSegOrderingExperiment():
 
         return score_value, iterations_used, yhat
 
+    @torch.inference_mode()
     def _run_seq_common(
         self,
         images,
