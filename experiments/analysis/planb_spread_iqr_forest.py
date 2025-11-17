@@ -10,6 +10,7 @@ from typing import Dict, Iterable, List, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,10 @@ Y_OFFSETS = {
     "Pred 0.97": 0.06,
     "Label 0.97": 0.18,
 }
+
+BOOTSTRAP_SAMPLES = 2000
+BOOTSTRAP_ALPHA = 0.05
+_BOOTSTRAP_RNG = np.random.default_rng(0)
 
 MEASURE_CONFIGS: Dict[str, MeasureConfig] = {
     "initial_dice": MeasureConfig(
@@ -139,8 +144,8 @@ def iter_ablation_records(
             if not csv_path.exists():
                 raise FileNotFoundError(f"Missing subset stats CSV: {csv_path}")
             df = pd.read_csv(csv_path)
-            values = df[metric_column].dropna()
-            if values.empty:
+            values = df[metric_column].dropna().to_numpy(dtype=float)
+            if values.size == 0:
                 raise ValueError(f"No values found in column '{metric_column}' of {csv_path}")
             # For iteration measures we can annotate stop reasons; compute here if available
             hit_frac = None
@@ -162,7 +167,7 @@ def iter_ablation_records(
                 "dataset": dataset,
                 "ablation": config.name,
                 "color": config.color,
-                "center": float(values.median()),
+                "center": float(np.mean(values)),
                 "low": float(values.min()),
                 "high": float(values.max()),
                 "hit_frac": hit_frac,
@@ -261,6 +266,7 @@ def plot_family_grid(
     x_axis_label: str,
     title_template: str,
     dataset_limit: Optional[int] = None,
+    exclude_zero_hit: bool = False,
 ) -> None:
     if not family_to_records:
         return
@@ -269,61 +275,99 @@ def plot_family_grid(
     if not families:
         return
 
-    ncols = min(3, len(families))
-    nrows = math.ceil(len(families) / ncols)
+    ncols = 3 if len(families) >= 3 else len(families)
+    nrows = math.ceil(len(families) / max(ncols, 1))
     rows: List[List[str]] = [families[i : i + ncols] for i in range(0, len(families), ncols)]
 
-    def _family_task_count(fam: str) -> int:
-        df = pd.DataFrame(family_to_records[fam])
-        return len(df["dataset"].unique())
-
-    height_ratios: List[float] = []
-    for row_fams in rows:
-        max_tasks = max((_family_task_count(f) for f in row_fams), default=1)
-        height_ratios.append(max(2.5, 0.3 * max_tasks))
-
-    fig_width = max(12 * ncols, 28)
-    fig_height = 3.0 * sum(height_ratios)
+    # Use a compact 3x3-style layout with modest per-panel size.
+    fig_width = 6 * max(ncols, 1)
+    fig_height = 3.5 * max(nrows, 1)
     fig, axes = plt.subplots(
         nrows=nrows,
         ncols=ncols,
         figsize=(fig_width, fig_height),
-        gridspec_kw={"height_ratios": height_ratios},
         squeeze=False,
     )
-    shared_handles: Dict[str, plt.Line2D] = {}
 
+    # Aggregate across tasks per family and ablation, excluding datasets
+    # where any ablation has hit_frac == 0.
+    aggregated: Dict[str, List[Dict[str, float]]] = {}
     global_low = None
     global_high = None
-    for recs in family_to_records.values():
-        if not recs:
+    for fam in families:
+        df_full = pd.DataFrame(family_to_records[fam])
+        if df_full.empty:
+            aggregated[fam] = []
             continue
-        df = pd.DataFrame(recs)
-        low = float(df["low"].min())
-        high = float(df["high"].max())
-        global_low = low if global_low is None else min(global_low, low)
-        global_high = high if global_high is None else max(global_high, high)
-    x_limits = None
+        df = df_full
+        # Exclude datasets with any zero hit_frac; if this would
+        # remove all tasks, fall back to using the full set.
+        if exclude_zero_hit and "hit_frac" in df.columns:
+            hit_zero = df.groupby("dataset")["hit_frac"].min().fillna(0.0) == 0.0
+            bad = set(hit_zero[hit_zero].index)
+            if bad and len(bad) < df["dataset"].nunique():
+                df = df[~df["dataset"].isin(bad)]
+        rows_out: List[Dict[str, float]] = []
+        for ab in ABLATION_ORDER:
+            sub = df[df["ablation"] == ab]
+            if sub.empty:
+                continue
+            vals = sub["center"].to_numpy(dtype=float)
+            if vals.size == 0:
+                continue
+            mean = float(vals.mean())
+            if vals.size == 1:
+                lo = hi = mean
+            else:
+                idx = _BOOTSTRAP_RNG.integers(0, vals.size, size=(BOOTSTRAP_SAMPLES, vals.size))
+                sample_means = vals[idx].mean(axis=1)
+                lo = float(np.quantile(sample_means, BOOTSTRAP_ALPHA / 2))
+                hi = float(np.quantile(sample_means, 1 - BOOTSTRAP_ALPHA / 2))
+            color = sub["color"].iloc[0]
+            rows_out.append({"ablation": ab, "center": mean, "low": lo, "high": hi, "color": color})
+            global_low = lo if global_low is None else min(global_low, lo)
+            global_high = hi if global_high is None else max(global_high, hi)
+        aggregated[fam] = rows_out
+
     if global_low is not None and global_high is not None:
         span = max(global_high - global_low, 1e-6)
-        padding = 0.05 * span
-        left = min(0.0, global_low - padding)
-        right = global_high + padding
-        x_limits = (left, right)
+        pad = 0.05 * span
+        x_limits = (min(0.0, global_low - pad), global_high + pad)
+    else:
+        x_limits = None
 
+    shared_handles: Dict[str, plt.Line2D] = {}
     for idx, fam in enumerate(families):
         r, c = divmod(idx, ncols)
         ax = axes[r][c]
-        data = pd.DataFrame(family_to_records[fam])
-        handles = _plot_forest_panel(
-            ax,
-            data,
-            x_axis_label=x_axis_label,
-            title=f"{title_template} — {fam}",
-            show_hit_info=False,
-            dataset_limit=dataset_limit,
-            x_limits=x_limits,
-        )
+        fam_rows = aggregated.get(fam, [])
+        if not fam_rows:
+            ax.axis("off")
+            continue
+        df = pd.DataFrame(fam_rows)
+        handles: Dict[str, plt.Line2D] = {}
+        ys: List[float] = []
+        for j, ab in enumerate(ABLATION_ORDER):
+            row = df[df["ablation"] == ab]
+            if row.empty:
+                continue
+            row = row.iloc[0]
+            y = j
+            ys.append(y)
+            color = row["color"]
+            ax.hlines(y, row["low"], row["high"], color=color, linewidth=2)
+            ax.plot(row["center"], y, "o", color=color, markersize=6)
+            handles.setdefault(ab, ax.plot([], [], color=color, label=ab)[0])
+        ax.set_yticks(range(len(ABLATION_ORDER)))
+        ax.set_yticklabels(ABLATION_ORDER)
+        ax.set_xlabel(x_axis_label)
+        ax.set_title(f"{title_template} — {fam}")
+        ax.grid(axis="x", linestyle="--", linewidth=0.5, alpha=0.5)
+        if x_limits is not None:
+            ax.set_xlim(x_limits)
+        else:
+            ax.set_xlim(left=0)
+        ax.set_ylim(-0.5, len(ABLATION_ORDER) - 0.5)
         if not shared_handles:
             shared_handles = handles
 
@@ -433,6 +477,7 @@ def main() -> None:
                 x_axis_label=measure_config.x_axis_label_template.format(metric_label=metric_label),
                 title_template=measure_config.title_template.format(metric_label=metric_label),
                 dataset_limit=args.family_grid_max_tasks if args.family_grid_max_tasks > 0 else None,
+                exclude_zero_hit=(args.measure == "iterations_mean"),
             )
             print(f"Saved family grid forest plot to {grid_path}")
     else:
