@@ -11,6 +11,7 @@ from experiments.dataset.tyche_augs import (
     apply_sharpness,
     apply_brightness_contrast,
     apply_tyche_aug,
+    apply_tyche_augs,
 )
 
 
@@ -109,3 +110,21 @@ def test_apply_tyche_aug_dispatch():
     )
     expected_bc = apply_brightness_contrast(img, brightness=0.1, contrast=1.0)
     assert torch.allclose(out_bc, expected_bc)
+
+
+def test_apply_tyche_augs_returns_independent_perturbations():
+    img = torch.rand(1, 16, 16)
+    tyche = TycheAugs(seed=123)
+    augs_with_params = tyche.sample_augs_with_params(N=3)
+
+    outputs = apply_tyche_augs(img, augs_with_params)
+
+    # Should return one output per sampled augmentation, each same shape as input.
+    assert isinstance(outputs, list)
+    assert len(outputs) == len(augs_with_params)
+    for out in outputs:
+        assert isinstance(out, torch.Tensor)
+        assert out.shape == img.shape
+
+    # At least one output should differ from the original image for typical configs.
+    assert any(not torch.allclose(out, img) for out in outputs)

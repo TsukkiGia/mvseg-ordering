@@ -230,7 +230,8 @@ def apply_tyche_augs(
     augs_with_params: List[Tuple[AugType, Dict[str, Any]]],
 ) -> torch.Tensor:
     """Apply a sequence of Tyche augmentations to an image tensor."""
-    out = image
+    outputs = []
     for aug, params in augs_with_params:
-        out = apply_tyche_aug(out, aug, params)
-    return out
+        out = apply_tyche_aug(image, aug, params)   # NOTE: image, not out
+        outputs.append(out)
+    return outputs
