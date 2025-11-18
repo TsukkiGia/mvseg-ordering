@@ -10,7 +10,7 @@ defaults:
   mega_dataset_name: WBC
   no_visualize: true
   device: cuda
-  shards: 24
+  shards: 4
   experiment_seed: 23
   eval_fraction: 0.33
   eval_checkpoints: [1, 2, 4, 8, 10]
