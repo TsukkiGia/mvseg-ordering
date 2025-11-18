@@ -17,7 +17,8 @@ class AugType(Enum):
 
 @dataclass
 class AugConfig:
-    prob: float
+    prob: float  # weight for random.choices
+    # (low, high) -> sample Uniform(low, high); float -> fixed value
     params: Dict[str, Tuple[float, float] | float] = field(default_factory=dict)
 
 
@@ -52,6 +53,8 @@ class TycheAugs:
 
         self._normalize_probs()
 
+    # ---------- internal helpers ----------
+
     def _normalize_probs(self) -> None:
         total = sum(cfg.prob for cfg in self.configs.values())
         if total <= 0:
@@ -59,8 +62,18 @@ class TycheAugs:
         for cfg in self.configs.values():
             cfg.prob /= total
 
-    def sample_augs(self, N: int) -> List[AugType]:
-        """Sample N augmentations from the configured categorical distribution."""
+    @staticmethod
+    def _sample_param(spec: Tuple[float, float] | float) -> float:
+        """Sample a single parameter from its spec."""
+        if isinstance(spec, tuple):
+            lo, hi = spec
+            return random.uniform(lo, hi)
+        return float(spec)
+
+    # ---------- public API ----------
+
+    def sample_augs(self, N: int = 1) -> List[AugType]:
+        """Sample N augmentation types from the configured categorical distribution."""
         if N <= 0:
             return []
         aug_types = list(self.configs.keys())
@@ -68,8 +81,13 @@ class TycheAugs:
         return random.choices(aug_types, weights=probs, k=N)
 
     def get_params(self, aug: AugType) -> Dict[str, Any]:
-        """Return the parameter configuration for the provided augmentation."""
+        """Sample concrete parameter values for the chosen augmentation."""
         if aug not in self.configs:
             raise KeyError(f"Unknown augmentation type: {aug}")
-        return self.configs[aug].params
+        cfg = self.configs[aug]
+        return {name: self._sample_param(spec) for name, spec in cfg.params.items()}
 
+    def sample_augs_with_params(self, N: int = 1) -> List[Tuple[AugType, Dict[str, Any]]]:
+        """Convenience: sample N augs and their parameter values."""
+        augs = self.sample_augs(N)
+        return [(aug, self.get_params(aug)) for aug in augs]
