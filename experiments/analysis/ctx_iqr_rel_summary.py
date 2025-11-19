@@ -19,11 +19,13 @@ Outputs:
 from __future__ import annotations
 
 import argparse
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple, List, DefaultDict
 from collections import defaultdict
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -59,46 +61,10 @@ VARIANT_COMMITS = [
 ]
 DEFAULT_COMMIT_DIRS = [slug for slug, _ in VARIANT_COMMITS]
 VARIANT_LABELS = {slug: label for slug, label in VARIANT_COMMITS}
-def _find_eval_csv(path: Path) -> Optional[Path]:
-    """Resolve a user-supplied path to eval_image_summary.csv if possible."""
-    if path.is_file() and path.name == "eval_image_summary.csv":
-        return path
-    if path.is_dir():
-        # Accept .../A/results or .../A or commit dir containing A/
-        candidates = [
-            path / "eval_image_summary.csv",
-            path / "results" / "eval_image_summary.csv",
-            path / "A" / "results" / "eval_image_summary.csv",
-        ]
-        for c in candidates:
-            if c.exists():
-                return c
-    return None
-
-
-def _task_family_from_path(csv_path: Path) -> Tuple[Optional[str], Optional[str]]:
-    """Return (task_label, family) if the path contains a known experiment root."""
-    parts = csv_path.parts
-    for idx, part in enumerate(parts):
-        if part in FAMILY_ROOTS:
-            family = FAMILY_ROOTS[part]
-            task_component = parts[idx + 1] if idx + 1 < len(parts) else ""
-            task_label = f"{family} — {task_component}" if task_component else family
-            return task_label, family
-    return None, None
-
-
-def _default_task_label(csv_path: Path) -> str:
-    try:
-        return str(csv_path.parents[3])  # .../<task>/<commit>/A/results/eval.csv
-    except IndexError:
-        return str(csv_path.parent)
 
 
 def _iter_script_eval_csvs(
     repo_root: Path,
-    *,
-    commit_dirs: Optional[Iterable[str]] = None,
     include_families: Optional[List[str]] = None,
     procedure: Optional[str] = None,
 ) -> Iterable[Tuple[str, Path, str, str]]:
@@ -106,8 +72,6 @@ def _iter_script_eval_csvs(
     scripts_root = repo_root / "experiments" / "scripts"
     if procedure:
         scripts_root = scripts_root / procedure
-
-    commit_dirs = list(commit_dirs) if commit_dirs else DEFAULT_COMMIT_DIRS
 
     if include_families:
         allow = {
@@ -124,43 +88,27 @@ def _iter_script_eval_csvs(
             continue
         for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
             task_label = f"{family} — {task_dir.name}"
-            for commit_dir in commit_dirs:
+            for commit_dir in DEFAULT_COMMIT_DIRS:
                 eval_csv = task_dir / commit_dir / "A" / "results" / "eval_image_summary.csv"
                 if eval_csv.exists():
                     yield task_label, eval_csv, family, commit_dir
 
 
-def _detect_commit_dir(csv_path: Path) -> Optional[str]:
-    parts = set(csv_path.parts)
-    for slug in DEFAULT_COMMIT_DIRS:
-        if slug in parts:
-            return slug
-    return None
-
-
 def _make_task_item(
-    task_hint: Optional[str],
+    task_hint: str,
     csv_path: Path,
-    family_hint: Optional[str],
+    family_hint:str,
     metric: str,
 ) -> Optional[TaskCtxIQRRel]:
     df = _load_eval(csv_path)
     if df.empty:
         return None
-    task_label = task_hint or _default_task_label(csv_path)
     if "task_name" not in df.columns:
         df = df.copy()
-        df["task_name"] = task_label
+        df["task_name"] = task_hint
     item = _compute_task_iqr_rel(df, metric=metric)
-    item.task = task_label or item.task
-    if family_hint:
-        item.family = family_hint
-    elif not item.family:
-        _, fam_from_path = _task_family_from_path(csv_path)
-        if fam_from_path:
-            item.family = fam_from_path
-        else:
-            item.family = _family_from_task_name(item.task)
+    item.task = task_hint
+    item.family = family_hint
     return item
 
 
@@ -188,11 +136,10 @@ def _load_eval(csv_path: Path) -> pd.DataFrame:
 @dataclass
 class TaskCtxIQRRel:
     task: str
-    commit_type: Optional[str]
-    dice_cutoff: Optional[float]
-    table: pd.DataFrame  # columns: context_size, iqr, iqr_rel
-    # optional dataset family (first component of task_name)
-    family: Optional[str] = None
+    commit_type: str
+    dice_cutoff: float
+    table: pd.DataFrame
+    family: str
 
 
 def _compute_task_iqr_rel(
@@ -200,26 +147,23 @@ def _compute_task_iqr_rel(
     metric: str,
     eps: float = 1e-8,
 ) -> TaskCtxIQRRel:
-    # Per-permutation reduction at each k
+    # Collapse per-image metrics down to (context_size, permutation_index) means.
     ctx_perm = compute_ctx_perm(df, metric, reducer="mean")
+    # For each context size k aggregate across permutations (q1, median, q3, ...).
     stats = summarise_ctx(ctx_perm, metric)
     stats = stats.sort_values("context_size").reset_index(drop=True)
     stats["iqr"] = stats["q3"] - stats["q1"]
 
-    # Baseline IQR at k=baseline_k (default k=1). If missing, use smallest k>0
+    # Use k=DEFAULT_BASELINE_K (usually k=1) as the normalisation anchor.
     base_row = stats[stats["context_size"] == DEFAULT_BASELINE_K]
     if base_row.empty:
-        # Prefer the smallest k>0 if present, otherwise the very first available k
-        gt0 = stats[stats["context_size"] > 0]
-        if not gt0.empty:
-            base_iqr = float(gt0["iqr"].iloc[0])
-        else:
-            base_iqr = float(stats["iqr"].iloc[0]) if not stats.empty else 0.0
-    else:
-        base_iqr = float(base_row["iqr"].iloc[0])
+        raise ValueError("Empty baseline")
+
+    base_iqr = float(base_row["iqr"].iloc[0])
     denom = max(base_iqr, eps)
     stats["iqr_rel"] = stats["iqr"] / denom
 
+    # These metadata columns are constant per CSV, so we just read the first row.
     commit_type = df.get("commit_type").iloc[0] if "commit_type" in df.columns and len(df) else None
     dice_cutoff = float(df.get("dice_cutoff").iloc[0]) if "dice_cutoff" in df.columns and len(df) else None
 
@@ -229,11 +173,12 @@ def _compute_task_iqr_rel(
         commit_type=commit_type,
         dice_cutoff=dice_cutoff,
         table=stats[["context_size", "iqr", "iqr_rel"]].copy(),
-        family=_family_from_task_name(task_name) if task_name else None,
+        family=_family_from_task_name(task_name)
     )
 
 
 def _bootstrap_mean_ci(values: np.ndarray) -> Tuple[float, float, float]:
+    # Turn the collected per-task values for a single k into a dense array.
     values = np.asarray(values, dtype=float)
     n = int(values.size)
     if n == 0:
@@ -241,6 +186,7 @@ def _bootstrap_mean_ci(values: np.ndarray) -> Tuple[float, float, float]:
     mean = float(np.mean(values))
     if n == 1:
         return mean, mean, mean
+    # Resample indices with replacement to estimate sampling variability.
     indices = _BOOTSTRAP_RNG.integers(0, n, size=(BOOTSTRAP_SAMPLES, n))
     sample_means = values[indices].mean(axis=1)
     alpha = BOOTSTRAP_ALPHA / 2.0
@@ -249,30 +195,41 @@ def _bootstrap_mean_ci(values: np.ndarray) -> Tuple[float, float, float]:
     return mean, lo, hi
 
 
-def _summarise_items(items: List[TaskCtxIQRRel], label: str) -> pd.DataFrame:
+def _summarise_items(
+    items: List[TaskCtxIQRRel],
+    *,
+    allowed_ks: Optional[Iterable[int]] = None,
+) -> pd.DataFrame:
     if not items:
         raise ValueError("No per-task IQR_rel items to aggregate.")
 
-    ks = sorted({int(k) for it in items for k in it.table["context_size"].unique()})
+    observed = sorted({int(k) for it in items for k in it.table["context_size"].unique()})
+    if allowed_ks:
+        target = [int(k) for k in allowed_ks]
+        ks = [k for k in target if k in observed]
+    else:
+        ks = observed
+    # Drop any k=0 entries; we only care about the required context sizes.
+    ks = [k for k in ks if k != 0]
     rows = []
-    commit_types = {it.commit_type for it in items if it.commit_type is not None}
-    dice_cutoffs = {it.dice_cutoff for it in items if it.dice_cutoff is not None}
+    commit_types = {it.commit_type for it in items}
+    dice_cutoffs = {it.dice_cutoff for it in items}
     if len(commit_types) > 1:
         raise ValueError(f"Multiple commit_type values found: {sorted(commit_types)}")
     if len(dice_cutoffs) > 1:
         raise ValueError(f"Multiple dice_cutoff values found: {sorted(dice_cutoffs)}")
-    commit_type = next(iter(commit_types)) if commit_types else None
-    dice_cutoff = next(iter(dice_cutoffs)) if dice_cutoffs else None
+    commit_type = next(iter(commit_types))
+    dice_cutoff = next(iter(dice_cutoffs))
 
     for k in ks:
+        # Pick out this context size and gather all tasks' relative IQR values.
         subset = [
             float(it.table.loc[it.table["context_size"] == k, "iqr_rel"].iloc[0])
             for it in items
             if (it.table["context_size"] == k).any()
         ]
         mean, lo, hi = _bootstrap_mean_ci(np.array(subset, dtype=float))
-        rows.append({
-            "label": label,
+        row = {
             "commit_type": commit_type,
             "dice_cutoff": dice_cutoff,
             "context_size": k,
@@ -280,22 +237,80 @@ def _summarise_items(items: List[TaskCtxIQRRel], label: str) -> pd.DataFrame:
             "iqr_rel_mean": mean,
             "iqr_rel_ci_lo": lo,
             "iqr_rel_ci_hi": hi,
-        })
+        }
+        rows.append(row)
 
     return pd.DataFrame(rows).sort_values("context_size").reset_index(drop=True)
 
 
-def _summarise_by_family(items: List[TaskCtxIQRRel]) -> pd.DataFrame:
-    families = sorted({it.family or "unknown" for it in items})
+def _summarise_by_family(
+    items: List[TaskCtxIQRRel],
+    *,
+    allowed_ks: Optional[Iterable[int]] = None,
+) -> pd.DataFrame:
+    # Build one summary per dataset family so we can plot/compare them separately.
+    families = sorted({it.family for it in items})
     frames: List[pd.DataFrame] = []
     for fam in families:
-        fam_items = [it for it in items if (it.family or "unknown") == fam]
-        if not fam_items:
-            continue
-        fam_df = _summarise_items(fam_items, label=fam)
+        fam_items = [it for it in items if it.family == fam]
+        fam_df = _summarise_items(fam_items, allowed_ks=allowed_ks)
         fam_df.insert(0, "family", fam)
         frames.append(fam_df)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def _plot_family_iqr_grid(
+    df: pd.DataFrame,
+    *,
+    title: str,
+    x_label: str,
+    output_path: Path,
+) -> None:
+    # Each subplot renders mean ± CI curves for a single family.
+    families = sorted(df["family"].unique())
+    if not families:
+        return
+    ncols = min(3, max(1, len(families)))
+    nrows = math.ceil(len(families) / ncols)
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=(5 * ncols, 3.5 * nrows),
+        squeeze=False,
+        sharex=True,
+        sharey=True,
+    )
+    for idx, fam in enumerate(families):
+        r, c = divmod(idx, ncols)
+        ax = axes[r][c]
+        fam_df = df[df["family"] == fam].sort_values("context_size")
+        if fam_df.empty:
+            ax.axis("off")
+            continue
+        x = fam_df["context_size"].to_numpy()
+        y = fam_df["iqr_rel_mean"].to_numpy()
+        lo = fam_df["iqr_rel_ci_lo"].to_numpy()
+        hi = fam_df["iqr_rel_ci_hi"].to_numpy()
+        yerr = np.vstack([y - lo, hi - y])
+        ax.errorbar(x, y, yerr=yerr, marker="o", linestyle="-", color="C0", capsize=3)
+        ax.set_title(fam)
+        ax.grid(True, linestyle="--", linewidth=0.4, alpha=0.5)
+    total_axes = nrows * ncols
+    for idx in range(len(families), total_axes):
+        r, c = divmod(idx, ncols)
+        axes[r][c].axis("off")
+    for ax in axes[-1]:
+        ax.set_xlabel(x_label)
+    for row_axes in axes:
+        row_axes[0].set_ylabel("Relative IQR")
+    for ax_row in axes:
+        for ax in ax_row:
+            ax.tick_params(labelbottom=True, labelleft=True)
+    fig.suptitle(title)
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
 
 
 def _write_long_table(items: List[TaskCtxIQRRel], out_csv: Path) -> None:
@@ -322,15 +337,27 @@ def _write_long_table(items: List[TaskCtxIQRRel], out_csv: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Aggregate IQR_rel(k) across tasks for Plan C evals.")
-    ap.add_argument("inputs", type=Path, nargs="*", help="Optional extra eval CSV paths or directories to include")
     ap.add_argument("--family", action="append", help="Restrict discovery to these dataset families (ACDC, BTCV, ...)")
     ap.add_argument("--procedure", type=str, default=None, help="Optional subfolder under experiments/scripts to scan (e.g., 'random')")
     ap.add_argument("--metric", type=str, default="final_dice", help="Metric (final_dice|initial_dice|iterations_used)")
-    ap.add_argument("--label", type=str, default="dataset", help="Base label used in outputs (will be combined with ablation name)")
     ap.add_argument("--out-csv", type=Path, default=Path("figures/ctx_iqr_rel_summary.csv"), help="Path for the combined summary across all ablations")
     ap.add_argument("--by-family", action="store_true", help="Aggregate separately by dataset family")
+    ap.add_argument(
+        "--family-plot-dir",
+        type=Path,
+        default=None,
+        help="Optional directory to save family grid plots (use with --by-family).",
+    )
     ap.add_argument("--out-long", type=Path, default=None, help="Optional path to write long per-task table of IQR and IQR_rel")
+    ap.add_argument(
+        "--require-ks",
+        type=int,
+        nargs="+",
+        default=None,
+        help="If set, only include tasks whose curves contain all these context sizes k (e.g., --require-ks 1 2 4 8 10).",
+    )
     args = ap.parse_args()
+    required_ks = {int(k) for k in args.require_ks} if args.require_ks else None
 
     resolved: DefaultDict[str, List[Tuple[Optional[str], Path, Optional[str]]]] = defaultdict(list)
 
@@ -349,15 +376,6 @@ def main() -> None:
     for task_label, csvp, family, commit_dir in discovered:
         resolved[commit_dir].append((task_label, csvp, family))
 
-    for p in args.inputs:
-        csvp = _find_eval_csv(p)
-        if csvp is None:
-            print(f"[skip] Could not resolve eval_image_summary.csv for {p}")
-            continue
-        task_hint, family_hint = _task_family_from_path(csvp)
-        variant = _detect_commit_dir(csvp) or "manual"
-        resolved[variant].append((task_hint, csvp, family_hint))
-
     if not any(resolved.values()):
         raise SystemExit("No valid eval_image_summary.csv inputs found.")
 
@@ -371,23 +389,47 @@ def main() -> None:
             if item is None:
                 continue
             variant_items.append(item)
-            all_items.append(item)
+
+        # Optionally drop tasks that do not contain all required ks
+        if required_ks:
+            filtered_items: List[TaskCtxIQRRel] = []
+            dropped = 0
+            for it in variant_items:
+                ks = {int(k) for k in it.table["context_size"].unique()}
+                if required_ks.issubset(ks):
+                    filtered_items.append(it)
+                else:
+                    dropped += 1
+            if dropped:
+                print(
+                    f"[info] Variant {variant}: dropped {dropped} tasks missing ks {sorted(required_ks)}"
+                )
+            variant_items = filtered_items
+
+        all_items.extend(variant_items)
 
         if not variant_items:
             continue
 
         variant_pretty = VARIANT_LABELS.get(variant, variant)
-        label = variant_pretty if args.label == "dataset" else f"{args.label} — {variant_pretty}"
         if args.by_family:
-            variant_df = _summarise_by_family(variant_items)
+            variant_df = _summarise_by_family(variant_items, allowed_ks=required_ks)
+            if args.family_plot_dir is not None and not variant_df.empty:
+                metric_slug = args.metric.replace("/", "_")
+                out_path = args.family_plot_dir / f"ctx_iqr_rel_{metric_slug}_{variant.replace('/', '_')}_family_grid.png"
+                _plot_family_iqr_grid(
+                    variant_df,
+                    title=f"{args.metric} — {variant_pretty}",
+                    x_label="Context Size k",
+                    output_path=out_path,
+                )
         else:
-            variant_df = _summarise_items(variant_items, label=label)
+            variant_df = _summarise_items(variant_items, allowed_ks=required_ks)
 
         if variant_df.empty:
             continue
 
         variant_df.insert(0, "variant", variant)
-        variant_df.insert(1, "variant_label", variant_pretty)
         combined_frames.append(variant_df)
 
     if not combined_frames:

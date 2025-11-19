@@ -97,33 +97,23 @@ def _gather_family_points(
         required = {"subset_index", "permutation_index", "initial_dice", "iterations_used"}
         if not required.issubset(df.columns):
             continue
-        has_reached = "reached_cutoff" in df.columns
-        if has_reached:
-            rc = df["reached_cutoff"].astype(str).str.lower().isin(["true", "1", "t", "yes"])
-            df = df.copy()
-            df["_reached"] = rc.astype(float)
-            grp = (
-                df.groupby(["subset_index", "permutation_index"])  # type: ignore[index]
-                .agg(
-                    avg_initial=("initial_dice", "mean"),
-                    avg_iters=("iterations_used", "mean"),
-                    frac_reached=("_reached", "mean"),
-                )
-                .reset_index()
+        rc = df["reached_cutoff"].astype(str).str.lower().isin(["true", "1", "t", "yes"])
+        df = df.copy()
+        df["_reached"] = rc.astype(float)
+        grp = (
+            df.groupby(["subset_index", "permutation_index"])  # type: ignore[index]
+            .agg(
+                avg_initial=("initial_dice", "mean"),
+                avg_iters=("iterations_used", "mean"),
+                frac_reached=("_reached", "mean"),
             )
-        else:
-            grp = (
-                df.groupby(["subset_index", "permutation_index"])  # type: ignore[index]
-                .agg(avg_initial=("initial_dice", "mean"), avg_iters=("iterations_used", "mean"))
-                .reset_index()
-            )
+            .reset_index()
+        )
         rows = family_to_rows.setdefault(family, [])
         for _, r in grp.iterrows():
-            hit_cap = False
-            if has_reached and "frac_reached" in r:
-                # Mark points where at least 90% of underlying
-                # samples failed to reach the cutoff.
-                hit_cap = float(r["frac_reached"]) <= 0.10 + 1e-6
+            # Mark points where at least 90% of underlying
+            # samples failed to reach the cutoff.
+            hit_cap = float(r["frac_reached"]) <= 0.10 + 1e-6
             rows.append({
                 "avg_initial": float(r["avg_initial"]),
                 "avg_iters": float(r["avg_iters"]),
@@ -197,15 +187,28 @@ def plot_perm_scatter(
         y = grp["avg_iters"].to_numpy()
         m, b = np.polyfit(x, y, 1)
         xp = np.linspace(float(x.min()), float(x.max()), 100)
-        fit_handle, = ax.plot(xp, m * xp + b, color="black", linewidth=2, label="Best fit")
+        fit_handle, = ax.plot(
+            xp,
+            m * xp + b,
+            color="black",
+            linewidth=2,
+            label=f"Best fit (slope={m:.2f})",
+        )
         handles.append(fit_handle)
-        labels.append("Best fit")
+        labels.append(f"Best fit (slope={m:.2f})")
         if show_r2:
             yhat = m * x + b
             ss_res = float(((y - yhat) ** 2).sum())
             ss_tot = float(((y - y.mean()) ** 2).sum())
             r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-            ax.text(0.02, 0.98, f"R²={r2:.2f}", transform=ax.transAxes, va="top", ha="left")
+            ax.text(
+                0.02,
+                0.98,
+                f"Slope={m:.2f}\nR²={r2:.2f}",
+                transform=ax.transAxes,
+                va="top",
+                ha="left",
+            )
 
     ax.set_xlabel("Average Initial Dice (per subset, permutation)")
     ax.set_ylabel("Average Iterations Used (per subset, permutation)")

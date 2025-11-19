@@ -118,6 +118,7 @@ def iter_ablation_records(
     ]
 
     scripts_root = Path("experiments/scripts") / procedure if procedure else Path("experiments/scripts")
+    # for each family, get the stats for a given measure across all ablations
     for root_name in dynamic_roots:
         root_path = repo_root / scripts_root / root_name
         if not root_path.exists():
@@ -138,6 +139,7 @@ def iter_ablation_records(
 
     metric_column = measure_config.metric_columns[metric_name]
 
+    # for family - task, ablation configs
     for dataset, configs in dataset_configs.items():
         for config in configs:
             csv_path = repo_root / config.base_dir / measure_config.file_name
@@ -265,7 +267,6 @@ def plot_family_grid(
     output_path: Path,
     x_axis_label: str,
     title_template: str,
-    dataset_limit: Optional[int] = None,
     exclude_zero_hit: bool = False,
 ) -> None:
     if not family_to_records:
@@ -277,7 +278,6 @@ def plot_family_grid(
 
     ncols = 3 if len(families) >= 3 else len(families)
     nrows = math.ceil(len(families) / max(ncols, 1))
-    rows: List[List[str]] = [families[i : i + ncols] for i in range(0, len(families), ncols)]
 
     # Use a compact 3x3-style layout with modest per-panel size.
     fig_width = 6 * max(ncols, 1)
