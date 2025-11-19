@@ -1,5 +1,6 @@
 import os
 import math
+from dataclasses import dataclass
 
 from experiments.dataset.mega_medical_dataset import MegaMedicalDataset
 os.environ['NEURITE_BACKEND'] = 'pytorch'
@@ -17,20 +18,30 @@ for dep in ["MultiverSeg", "UniverSeg", "ScribblePrompt"]:
         sys.path.append(str(dep_path))
 
 import neurite as ne
-from typing import Any, Sequence, Optional
+from typing import Any, Sequence, Optional, Dict
 import torch
 from .dataset.wbc_multiple_perms import WBCDataset
 from multiverseg.models.sp_mvs import MultiverSeg
 import yaml
 from pylot.experiment.util import eval_config
 from .score.dice_score import dice_score
+from .score.uncertainty import pairwise_dice_disagreement, binary_entropy_from_mc_probs
+from .dataset.tyche_augs import TycheAugs, apply_tyche_augs
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from scribbleprompt.analysis.plot import show_points
-from typing import Union
+from typing import Union, Dict
 DatasetType = Union[WBCDataset, MegaMedicalDataset]
 DEFAULT_EVAL_STEP = 5
+
+
+@dataclass
+class CurriculumConfig:
+    """Configuration for simple uncertainty-based curriculum selection."""
+    metric: str  # "pairwise_dice" or "binary_entropy"
+    k: int       # number of MC samples
+    reverse: bool = False  # if True, pick highest uncertainty instead of lowest
 
 
 class MVSegOrderingExperiment():
@@ -49,6 +60,8 @@ class MVSegOrderingExperiment():
         device: Optional[torch.device] = None,
         eval_fraction: Optional[float] = 0.1,
         eval_checkpoints: Optional[Sequence[int]] = None,
+        curriculum: Optional[CurriculumConfig] = None,
+        tyche_sampler: Optional[TycheAugs] = None
     ):
         if device is not None:
             resolved_device = torch.device(device)
@@ -71,6 +84,12 @@ class MVSegOrderingExperiment():
         self.results_dir = script_dir / "results"
         self.results_dir.mkdir(exist_ok=True)
         self.should_visualize = should_visualize
+        self.curriculum = curriculum
+        self.tyche_sampler = tyche_sampler
+
+        if self.curriculum is not None and self.tyche_sampler is None:
+            raise RuntimeError("Curriculum requires a TycheAugs sampler, but none was provided.")
+
         if eval_fraction is not None:
             if not (0 < eval_fraction <= 1):
                 raise ValueError("eval_fraction must be in the interval (0, 1].")
@@ -283,7 +302,7 @@ class MVSegOrderingExperiment():
     ):
         binary_prediction = (prediction > 0).float()
         mask_to_commit = label[None, ...] if self.commit_ground_truth else binary_prediction
-
+        # # B x n x 1 x H x W
         if context_images is None:
             context_images = image[None, None, ...]
             context_labels = mask_to_commit[None, ...]
@@ -425,6 +444,102 @@ class MVSegOrderingExperiment():
 
         return score_value, iterations_used, yhat
 
+    def _compute_uncertainty_score(
+        self,
+        image: torch.Tensor,
+        context_images: Optional[torch.Tensor],
+        context_labels: Optional[torch.Tensor],
+        tyche_augs: Sequence[tuple[Any, Dict[str, Any]]],
+    ) -> float:
+        """
+        Compute an uncertainty score for a single image under the current context.
+
+        Uses the curriculum configuration (metric, k) and draws k Monte Carlo
+        samples. Each MC sample uses the
+        corresponding Tyche augmentation applied to the image; otherwise the
+        same image is used for all samples.
+        """
+        if self.curriculum is None:
+            raise RuntimeError("Curriculum configuration is not set.")
+
+        metric = self.curriculum.metric.lower()
+
+        # Prepare the list of MC images to evaluate.
+        mc_images: list[torch.Tensor] = []
+
+        # Apply the provided Tyche augmentations to get independently
+        # perturbed versions of the image.
+        augmented = apply_tyche_augs(image, list(tyche_augs))
+        mc_images.extend(img.to(self.device) for img in augmented)
+
+        if len(mc_images) < 2:
+            raise ValueError("At least two MC images are required for uncertainty scoring.")
+
+        # Collect probability maps (after sigmoid) for the segmentation.
+        samples: list[torch.Tensor] = []
+        for mc_image in mc_images:
+            probs = self.model.predict(
+                mc_image[None],  # B=1, C x H x W -> 1 x C x H x W
+                context_images=context_images,
+                context_labels=context_labels,
+                return_logits=False,
+            ).to(self.device)
+            # probs has shape (1, 1, H, W); keep the (1, 1, H, W) as spatial dims.
+            samples.append(probs)
+
+        # Stack along the MC dimension: (K, 1, H, W)
+        mc_probs = torch.stack(samples, dim=0)
+
+        if metric in {"pairwise_dice", "pairwise_dice_disagreement"}:
+            # Threshold probabilities to binary masks before Dice.
+            binary_mc = (mc_probs > 0.5).float()
+            score_tensor = pairwise_dice_disagreement(binary_mc)
+        elif metric in {"binary_entropy", "entropy", "mc_entropy"}:
+            score_tensor = binary_entropy_from_mc_probs(mc_probs, reduce=True)
+        else:
+            raise ValueError(f"Unknown curriculum metric '{self.curriculum.metric}'")
+
+        return float(score_tensor.item())
+
+    def _select_index_by_curriculum(
+        self,
+        candidate_indices: set[int],
+        context_images: Optional[torch.Tensor],
+        context_labels: Optional[torch.Tensor],
+    ) -> int:
+        """
+        Given a set of candidate data indices and the current context, select
+        the index with lowest or highest uncertainty according to the curriculum.
+        """
+        if self.curriculum is None:
+            raise RuntimeError("Curriculum configuration is not set.")
+        if not candidate_indices:
+            raise ValueError("candidate_indices must be a non-empty sequence.")
+
+        scored: list[tuple[int, float]] = []
+        tyche_augs = self.tyche_sampler.sample_augs_with_params(N=self.curriculum.k)
+
+        for data_idx in candidate_indices:
+            image, _ = self.support_dataset.get_item_by_data_index(data_idx)
+            image = image.to(self.device)
+
+            score = self._compute_uncertainty_score(
+                image=image,
+                context_images=context_images,
+                context_labels=context_labels,
+                tyche_augs=tyche_augs,
+            )
+            scored.append((data_idx, score))
+
+        if self.curriculum.reverse:
+            # Reverse curriculum: pick the highest-uncertainty image.
+            selected_idx, _ = max(scored, key=lambda x: x[1])
+        else:
+            # Standard curriculum: pick the lowest-uncertainty image.
+            selected_idx, _ = min(scored, key=lambda x: x[1])
+
+        return selected_idx
+
     @torch.inference_mode()
     def _run_seq_common(
         self,
@@ -453,7 +568,7 @@ class MVSegOrderingExperiment():
             label = labels[index]
             image_id = image_ids[index]
 
-            # Initial Dice
+            # Initial Dice Input is B x C x H x W and output is  # B x C x H x W
             yhat = self.model.predict(image[None], context_images, context_labels, return_logits=True).to(self.device)
             score = dice_score((yhat > 0).float(), label[None, ...])
             initial_dice = float(score.item())
