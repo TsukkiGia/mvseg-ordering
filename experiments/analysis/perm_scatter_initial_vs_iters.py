@@ -244,6 +244,7 @@ def plot_family_scatter_grid(
     output: Path,
     *,
     show_r2: bool = False,
+    show_slope: bool = False,
 ) -> Path:
     if not family_points:
         raise ValueError("No family data to plot")
@@ -297,12 +298,25 @@ def plot_family_scatter_grid(
             m, b = np.polyfit(x, y, 1)
             xp = np.linspace(x_min, x_max, 100)
             ax.plot(xp, m * xp + b, color="C0", linewidth=2)
+            annotations: List[str] = []
+            if show_slope:
+                annotations.append(f"Slope={m:.2f}")
             if show_r2:
                 yhat = m * x + b
                 ss_res = float(((y - yhat) ** 2).sum())
                 ss_tot = float(((y - y.mean()) ** 2).sum())
                 r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-                ax.text(0.02, 0.95, f"R²={r2:.2f}", transform=ax.transAxes, va="top", ha="left", fontsize=8)
+                annotations.append(f"R²={r2:.2f}")
+            if annotations:
+                ax.text(
+                    0.02,
+                    0.95,
+                    "\n".join(annotations),
+                    transform=ax.transAxes,
+                    va="top",
+                    ha="left",
+                    fontsize=8,
+                )
 
         ax.set_title(fam)
         ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.5)
@@ -354,6 +368,7 @@ def main() -> None:
     parser.add_argument("--commit-dir", type=str, default=None, help="Commit directory name (e.g., commit_pred_90)")
     parser.add_argument("--procedure", type=str, default="random", help="Procedure subfolder under experiments/scripts")
     parser.add_argument("--family", action="append", type=str, help="Restrict to specific families (e.g., ACDC, BTCV)")
+    parser.add_argument("--slope", action="store_true", help="Annotate family grid with best-fit slopes")
     args = parser.parse_args()
     repo_root = Path(__file__).resolve().parents[2]
 
@@ -376,6 +391,7 @@ def main() -> None:
             commit_label=args.commit_dir,
             output=args.output or (out_dir / f"perm_scatter_{args.commit_dir}_family_grid.png"),
             show_r2=bool(args.r2),
+            show_slope=bool(args.slope),
         )
         print(f"Saved family grid scatter to {out}")
         return

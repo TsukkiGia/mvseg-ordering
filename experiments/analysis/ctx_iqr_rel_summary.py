@@ -22,7 +22,7 @@ import argparse
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple, List, DefaultDict
+from typing import Dict, Iterable, Optional, Tuple, List, DefaultDict, Sequence
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
@@ -154,14 +154,17 @@ def _compute_task_iqr_rel(
     stats = stats.sort_values("context_size").reset_index(drop=True)
     stats["iqr"] = stats["q3"] - stats["q1"]
 
-    # Use k=DEFAULT_BASELINE_K (usually k=1) as the normalisation anchor.
-    base_row = stats[stats["context_size"] == DEFAULT_BASELINE_K]
-    if base_row.empty:
-        raise ValueError("Empty baseline")
-
-    base_iqr = float(base_row["iqr"].iloc[0])
-    denom = max(base_iqr, eps)
-    stats["iqr_rel"] = stats["iqr"] / denom
+    if metric == "iterations_used":
+        # For iterations_used, we use the absolute IQR as the variability measure.
+        stats["iqr_rel"] = stats["iqr"]
+    else:
+        # Use k=DEFAULT_BASELINE_K (usually k=1) as the normalisation anchor.
+        base_row = stats[stats["context_size"] == DEFAULT_BASELINE_K]
+        if base_row.empty:
+            raise ValueError("Empty baseline")
+        base_iqr = float(base_row["iqr"].iloc[0])
+        denom = max(base_iqr, eps)
+        stats["iqr_rel"] = stats["iqr"] / denom
 
     # These metadata columns are constant per CSV, so we just read the first row.
     commit_type = df.get("commit_type").iloc[0] if "commit_type" in df.columns and len(df) else None
@@ -265,11 +268,29 @@ def _plot_family_iqr_grid(
     title: str,
     x_label: str,
     output_path: Path,
+    legend: bool = True,
+    variant_order: Optional[Sequence[Optional[str]]] = None,
 ) -> None:
     # Each subplot renders mean ± CI curves for a single family.
     families = sorted(df["family"].unique())
     if not families:
         return
+    has_variants = "variant" in df.columns
+    if has_variants:
+        if variant_order is None:
+            variant_order = [
+                slug for slug, _ in VARIANT_COMMITS if slug in df["variant"].unique()
+            ]
+            if not variant_order:
+                variant_order = sorted(df["variant"].unique())
+        colors = plt.get_cmap("tab10")
+        color_map: Dict[Optional[str], str] = {
+            variant: colors(i % 10) for i, variant in enumerate(variant_order)
+        }
+    else:
+        variant_order = [None]
+        color_map = {None: "C0"}
+
     ncols = min(3, max(1, len(families)))
     nrows = math.ceil(len(families) / ncols)
     fig, axes = plt.subplots(
@@ -280,6 +301,7 @@ def _plot_family_iqr_grid(
         sharex=True,
         sharey=True,
     )
+    legend_handles: Dict[Optional[str], plt.Line2D] = {}
     for idx, fam in enumerate(families):
         r, c = divmod(idx, ncols)
         ax = axes[r][c]
@@ -287,27 +309,62 @@ def _plot_family_iqr_grid(
         if fam_df.empty:
             ax.axis("off")
             continue
-        x = fam_df["context_size"].to_numpy()
-        y = fam_df["iqr_rel_mean"].to_numpy()
-        lo = fam_df["iqr_rel_ci_lo"].to_numpy()
-        hi = fam_df["iqr_rel_ci_hi"].to_numpy()
-        yerr = np.vstack([y - lo, hi - y])
-        ax.errorbar(x, y, yerr=yerr, marker="o", linestyle="-", color="C0", capsize=3)
+        for variant in variant_order or [None]:
+            sub = fam_df if variant is None else fam_df[fam_df["variant"] == variant]
+            if sub.empty:
+                continue
+            x = sub["context_size"].to_numpy()
+            y = sub["iqr_rel_mean"].to_numpy()
+            lo = sub["iqr_rel_ci_lo"].to_numpy()
+            hi = sub["iqr_rel_ci_hi"].to_numpy()
+            yerr = np.vstack([y - lo, hi - y])
+            color = color_map.get(variant, "C0")
+            eb = ax.errorbar(
+                x,
+                y,
+                yerr=yerr,
+                marker="o",
+                linestyle="-",
+                color=color,
+                capsize=3,
+                label=VARIANT_LABELS.get(variant, variant) if variant else None,
+            )
+            if variant not in legend_handles and eb.lines:
+                legend_handles[variant] = eb.lines[0]
         ax.set_title(fam)
         ax.grid(True, linestyle="--", linewidth=0.4, alpha=0.5)
     total_axes = nrows * ncols
     for idx in range(len(families), total_axes):
         r, c = divmod(idx, ncols)
         axes[r][c].axis("off")
-    for ax in axes[-1]:
-        ax.set_xlabel(x_label)
-    for row_axes in axes:
-        row_axes[0].set_ylabel("Relative IQR")
+    # Label all visible axes for clarity.
     for ax_row in axes:
         for ax in ax_row:
-            ax.tick_params(labelbottom=True, labelleft=True)
+            if ax.has_data():
+                ax.set_xlabel(x_label)
+                ax.set_ylabel("Relative IQR")
+                ax.tick_params(labelbottom=True, labelleft=True)
     fig.suptitle(title)
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    if legend and has_variants and len([v for v in legend_handles if v is not None]) > 1:
+        ordered_handles = [
+            legend_handles[v]
+            for v in variant_order
+            if v in legend_handles and legend_handles[v] is not None
+        ]
+        ordered_labels = [
+            VARIANT_LABELS.get(v, v) for v in variant_order if v in legend_handles
+        ]
+        fig.legend(
+            ordered_handles,
+            ordered_labels,
+            loc="lower center",
+            ncol=min(len(ordered_handles), 4),
+            bbox_to_anchor=(0.5, 0.02),
+            frameon=True,
+        )
+        fig.tight_layout(rect=[0, 0.06, 1, 0.94])
+    else:
+        fig.tight_layout(rect=[0, 0, 1, 0.94])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=300)
     plt.close(fig)
@@ -335,6 +392,47 @@ def _write_long_table(items: List[TaskCtxIQRRel], out_csv: Path) -> None:
     df.to_csv(out_csv, index=False)
 
 
+def _plot_variant_overlay(
+    df: pd.DataFrame,
+    out_path: Path,
+    *,
+    metric: str,
+    title: Optional[str] = None,
+) -> None:
+    if df.empty:
+        raise ValueError("No aggregated data available for plotting.")
+    variants = [slug for slug, _ in VARIANT_COMMITS if slug in df["variant"].unique()]
+    if not variants:
+        variants = sorted(df["variant"].unique())
+    plt.figure(figsize=(9, 6))
+    ax = plt.gca()
+    colors = plt.get_cmap("tab10")
+    handles = []
+    for idx, variant in enumerate(variants):
+        sub = df[df["variant"] == variant].sort_values("context_size")
+        if sub.empty:
+            continue
+        x = sub["context_size"].to_numpy(dtype=float)
+        y = sub["iqr_rel_mean"].to_numpy(dtype=float)
+        lo = sub["iqr_rel_ci_lo"].to_numpy(dtype=float)
+        hi = sub["iqr_rel_ci_hi"].to_numpy(dtype=float)
+        color = colors(idx % 10)
+        line, = ax.plot(x, y, label=VARIANT_LABELS.get(variant, variant), color=color, linewidth=2)
+        ax.fill_between(x, lo, hi, color=color, alpha=0.2)
+        handles.append(line)
+    ax.set_xlabel("Context size k")
+    ax.set_ylabel("Relative IQR")
+    plot_title = title or f"Relative IQR vs k ({metric})"
+    ax.set_title(plot_title)
+    ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.4)
+    if handles:
+        ax.legend(loc="best")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300)
+    plt.close()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Aggregate IQR_rel(k) across tasks for Plan C evals.")
     ap.add_argument("--family", action="append", help="Restrict discovery to these dataset families (ACDC, BTCV, ...)")
@@ -349,6 +447,7 @@ def main() -> None:
         help="Optional directory to save family grid plots (use with --by-family).",
     )
     ap.add_argument("--out-long", type=Path, default=None, help="Optional path to write long per-task table of IQR and IQR_rel")
+    ap.add_argument("--out-plot", type=Path, default=None, help="Optional path to save an overlay plot across commit dirs (requires non --by-family).")
     ap.add_argument(
         "--require-ks",
         type=int,
@@ -357,6 +456,8 @@ def main() -> None:
         help="If set, only include tasks whose curves contain all these context sizes k (e.g., --require-ks 1 2 4 8 10).",
     )
     args = ap.parse_args()
+    if args.out_plot and args.by_family:
+        ap.error("--out-plot is only supported when --by-family is not set")
     required_ks = {int(k) for k in args.require_ks} if args.require_ks else None
 
     resolved: DefaultDict[str, List[Tuple[Optional[str], Path, Optional[str]]]] = defaultdict(list)
@@ -381,6 +482,7 @@ def main() -> None:
 
     combined_frames: List[pd.DataFrame] = []
     all_items: List[TaskCtxIQRRel] = []
+    family_plot_frames: List[pd.DataFrame] = []
 
     for variant, entries in sorted(resolved.items()):
         variant_items: List[TaskCtxIQRRel] = []
@@ -394,16 +496,19 @@ def main() -> None:
         if required_ks:
             filtered_items: List[TaskCtxIQRRel] = []
             dropped = 0
+            dropped_items = []
             for it in variant_items:
                 ks = {int(k) for k in it.table["context_size"].unique()}
                 if required_ks.issubset(ks):
                     filtered_items.append(it)
                 else:
                     dropped += 1
+                    dropped_items.append(it.task)
             if dropped:
                 print(
                     f"[info] Variant {variant}: dropped {dropped} tasks missing ks {sorted(required_ks)}"
                 )
+                print(dropped_items)
             variant_items = filtered_items
 
         all_items.extend(variant_items)
@@ -414,22 +519,26 @@ def main() -> None:
         variant_pretty = VARIANT_LABELS.get(variant, variant)
         if args.by_family:
             variant_df = _summarise_by_family(variant_items, allowed_ks=required_ks)
-            if args.family_plot_dir is not None and not variant_df.empty:
-                metric_slug = args.metric.replace("/", "_")
-                out_path = args.family_plot_dir / f"ctx_iqr_rel_{metric_slug}_{variant.replace('/', '_')}_family_grid.png"
-                _plot_family_iqr_grid(
-                    variant_df,
-                    title=f"{args.metric} — {variant_pretty}",
-                    x_label="Context Size k",
-                    output_path=out_path,
-                )
         else:
             variant_df = _summarise_items(variant_items, allowed_ks=required_ks)
 
         if variant_df.empty:
             continue
 
+        variant_df = variant_df.copy()
         variant_df.insert(0, "variant", variant)
+        if args.by_family and args.family_plot_dir is not None:
+            metric_slug = args.metric.replace("/", "_")
+            out_path = args.family_plot_dir / f"ctx_iqr_rel_{metric_slug}_{variant.replace('/', '_')}_family_grid.png"
+            _plot_family_iqr_grid(
+                variant_df,
+                title=f"{args.metric} — {variant_pretty}",
+                x_label="Context Size k",
+                output_path=out_path,
+                variant_order=[variant],
+            )
+            family_plot_frames.append(variant_df.copy())
+
         combined_frames.append(variant_df)
 
     if not combined_frames:
@@ -438,6 +547,22 @@ def main() -> None:
     combined = pd.concat(combined_frames, ignore_index=True)
     args.out_csv.parent.mkdir(parents=True, exist_ok=True)
     combined.to_csv(args.out_csv, index=False)
+
+    if args.by_family and args.family_plot_dir is not None and family_plot_frames:
+        metric_slug = args.metric.replace("/", "_")
+        overlay_df = pd.concat(family_plot_frames, ignore_index=True)
+        overlay_path = args.family_plot_dir / f"ctx_iqr_rel_{metric_slug}_all_variants_family_grid.png"
+        _plot_family_iqr_grid(
+            overlay_df,
+            title=f"{args.metric} — All variants",
+            x_label="Context Size k",
+            output_path=overlay_path,
+            variant_order=[slug for slug, _ in VARIANT_COMMITS],
+        )
+
+    if args.out_plot is not None:
+        title = f"IQR_rel vs k — {args.metric}"
+        _plot_variant_overlay(combined, args.out_plot, metric=args.metric, title=title)
 
     if args.out_long is not None and all_items:
         _write_long_table(all_items, args.out_long)

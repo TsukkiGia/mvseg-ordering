@@ -476,7 +476,6 @@ def main() -> None:
                 grid_path,
                 x_axis_label=measure_config.x_axis_label_template.format(metric_label=metric_label),
                 title_template=measure_config.title_template.format(metric_label=metric_label),
-                dataset_limit=args.family_grid_max_tasks if args.family_grid_max_tasks > 0 else None,
                 exclude_zero_hit=(args.measure == "iterations_mean"),
             )
             print(f"Saved family grid forest plot to {grid_path}")
