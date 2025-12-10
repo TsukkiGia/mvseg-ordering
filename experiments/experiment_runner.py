@@ -17,6 +17,7 @@ import pandas as pd
 from .dataset.wbc_multiple_perms import WBCDataset
 from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
+from .ordering_config import RandomConfig
 from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
 
@@ -187,6 +188,8 @@ def run_shard_worker(shard_dir: str, shard_indices: Sequence[int], setup: Experi
         setup.prompt_config_path, setup.prompt_config_key
     )
 
+    ordering_config = RandomConfig(seed=setup.seed, permutation_indices=shard_indices)
+
     experiment = MVSegOrderingExperiment(
         support_dataset=setup.support_dataset,
         prompt_generator=prompt_generator,
@@ -201,8 +204,9 @@ def run_shard_worker(shard_dir: str, shard_indices: Sequence[int], setup: Experi
         device=resolve_shard_device(setup.device, shard_id),
         eval_fraction=setup.eval_fraction,
         eval_checkpoints=setup.eval_checkpoints,
+        ordering_config=ordering_config,
     )
-    experiment.run_permutations(list(shard_indices))
+    experiment.run_permutations()
 
 def run_single_experiment(setup: ExperimentSetup) -> None:
     print(f"Running experiment...")

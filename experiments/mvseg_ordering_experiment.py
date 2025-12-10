@@ -32,6 +32,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scribbleprompt.analysis.plot import show_points
 from typing import Union, Dict
+from .ordering_config import OrderingConfig, RandomConfig
 DatasetType = Union[WBCDataset, MegaMedicalDataset]
 DEFAULT_EVAL_STEP = 5
 
@@ -61,7 +62,8 @@ class MVSegOrderingExperiment():
         eval_fraction: Optional[float] = 0.1,
         eval_checkpoints: Optional[Sequence[int]] = None,
         curriculum: Optional[CurriculumConfig] = None,
-        tyche_sampler: Optional[TycheAugs] = None
+        tyche_sampler: Optional[TycheAugs] = None,
+        ordering_config: Optional[OrderingConfig] = None,
     ):
         if device is not None:
             resolved_device = torch.device(device)
@@ -78,6 +80,9 @@ class MVSegOrderingExperiment():
         self.prompt_iterations = prompt_iterations
         self.commit_ground_truth = commit_ground_truth
         self.permutations = permutations
+        self.ordering_config = ordering_config or RandomConfig(
+            seed=seed, permutation_indices=list(range(permutations))
+        )
         self.dice_cutoff = dice_cutoff
         self.seed = seed
         self.interaction_protocol = interaction_protocol
@@ -113,15 +118,13 @@ class MVSegOrderingExperiment():
         torch.backends.cudnn.benchmark = False
 
 
-    def run_permutations(self, permutation_indices: Optional[list[int]] = None):
+    def run_permutations(self):
         train_indices = list(self.support_dataset.get_data_indices())
 
         all_iterations = []
         all_images = []
         all_eval_iterations = []
         all_eval_images = []
-
-        target_permutations = list(range(self.permutations)) if permutation_indices is None else permutation_indices
 
         support_indices = train_indices
         eval_indices: list[int] = []
@@ -137,13 +140,25 @@ class MVSegOrderingExperiment():
                     "Reduce eval_fraction or provide a larger dataset."
                 )
 
-        for permutation_index in target_permutations:
+        orderings = self.ordering_config.get_orderings(
+            support_dataset=self.support_dataset,
+            candidate_indices=support_indices,
+        )
+        ordering_labels = self.ordering_config.get_ordering_labels()
+        ordering_seeds = self.ordering_config.get_ordering_seeds()
+        ordering_labels = list(ordering_labels)
+        ordering_seeds = list(ordering_seeds)
+        if len(ordering_labels) != len(orderings):
+            raise ValueError("Ordering labels length does not match generated orderings.")
+        if len(ordering_seeds) != len(orderings):
+            raise ValueError("Ordering seeds length does not match generated orderings.")
+
+        ordering_triplets = list(zip(ordering_labels, orderings, ordering_seeds))
+
+        for permutation_index, shuffled_indices, perm_gen_seed in ordering_triplets:
             print(f"Doing Perm {permutation_index}...")
-            perm_gen_seed = self.seed + permutation_index
-            rng = np.random.default_rng(perm_gen_seed)
-            shuffled_indices = rng.permutation(support_indices).tolist()
-            shuffled_data = [self.support_dataset.get_item_by_data_index(index) for index in shuffled_indices]
-            support_images, support_labels = zip(*shuffled_data)
+            data = [self.support_dataset.get_item_by_data_index(index) for index in shuffled_indices]
+            support_images, support_labels = zip(*data)
             support_images = torch.stack(support_images).to(self.device)
             support_labels = torch.stack(support_labels).to(self.device)
             seed_folder_dir = self.results_dir / f"Perm_Seed_{permutation_index}"
@@ -349,11 +364,11 @@ class MVSegOrderingExperiment():
         context_size = 0 if full_context_images is None else len(full_context_images[0])
         eval_steps = context_steps if context_steps is not None \
             else list(range(DEFAULT_EVAL_STEP, context_size + 1, DEFAULT_EVAL_STEP))
-        if eval_steps[-1] != context_size:
-            eval_steps.append(context_size)
 
         for k in eval_steps:
             print(f"Eval for slice {k}")
+            if k > context_size:
+                break
             sliced_context_images = full_context_images[:, :k, ...]
             sliced_context_labels = full_context_labels[:, :k, ...]
             k_context_iteration_results, k_context_summary_results = self.run_seq_multiverseg_eval(
