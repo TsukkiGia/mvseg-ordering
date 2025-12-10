@@ -1,6 +1,5 @@
 import os
 import math
-from dataclasses import dataclass
 
 from experiments.dataset.mega_medical_dataset import MegaMedicalDataset
 os.environ['NEURITE_BACKEND'] = 'pytorch'
@@ -32,17 +31,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scribbleprompt.analysis.plot import show_points
 from typing import Union, Dict
-from .ordering_config import OrderingConfig, RandomConfig
+from .ordering_config import OrderingConfig, RandomConfig, CurriculumConfig
 DatasetType = Union[WBCDataset, MegaMedicalDataset]
 DEFAULT_EVAL_STEP = 5
-
-
-@dataclass
-class CurriculumConfig:
-    """Configuration for simple uncertainty-based curriculum selection."""
-    metric: str  # "pairwise_dice" or "binary_entropy"
-    k: int       # number of MC samples
-    reverse: bool = False  # if True, pick highest uncertainty instead of lowest
 
 
 class MVSegOrderingExperiment():
@@ -61,8 +52,6 @@ class MVSegOrderingExperiment():
         device: Optional[torch.device] = None,
         eval_fraction: Optional[float] = 0.1,
         eval_checkpoints: Optional[Sequence[int]] = None,
-        curriculum: Optional[CurriculumConfig] = None,
-        tyche_sampler: Optional[TycheAugs] = None,
         ordering_config: Optional[OrderingConfig] = None,
     ):
         if device is not None:
@@ -89,11 +78,10 @@ class MVSegOrderingExperiment():
         self.results_dir = script_dir / "results"
         self.results_dir.mkdir(exist_ok=True)
         self.should_visualize = should_visualize
-        self.curriculum = curriculum
-        self.tyche_sampler = tyche_sampler
 
-        if self.curriculum is not None and self.tyche_sampler is None:
-            raise RuntimeError("Curriculum requires a TycheAugs sampler, but none was provided.")
+        if isinstance(self.ordering_config, CurriculumConfig):
+            if self.ordering_config.tyche_sampler is None:
+                raise RuntimeError("CurriculumConfig requires a TycheAugs sampler, but none was provided.")
 
         if eval_fraction is not None:
             if not (0 < eval_fraction <= 1):
@@ -459,6 +447,11 @@ class MVSegOrderingExperiment():
 
         return score_value, iterations_used, yhat
 
+    def _get_curriculum_config(self) -> CurriculumConfig:
+        if not isinstance(self.ordering_config, CurriculumConfig):
+            raise RuntimeError("Curriculum configuration is not set.")
+        return self.ordering_config
+
     def _compute_uncertainty_score(
         self,
         image: torch.Tensor,
@@ -474,10 +467,8 @@ class MVSegOrderingExperiment():
         corresponding Tyche augmentation applied to the image; otherwise the
         same image is used for all samples.
         """
-        if self.curriculum is None:
-            raise RuntimeError("Curriculum configuration is not set.")
-
-        metric = self.curriculum.metric.lower()
+        curriculum_cfg = self._get_curriculum_config()
+        metric = curriculum_cfg.metric.lower()
 
         # Prepare the list of MC images to evaluate.
         mc_images: list[torch.Tensor] = []
@@ -512,7 +503,7 @@ class MVSegOrderingExperiment():
         elif metric in {"binary_entropy", "entropy", "mc_entropy"}:
             score_tensor = binary_entropy_from_mc_probs(mc_probs, reduce=True)
         else:
-            raise ValueError(f"Unknown curriculum metric '{self.curriculum.metric}'")
+            raise ValueError(f"Unknown curriculum metric '{curriculum_cfg.metric}'")
 
         return float(score_tensor.item())
 
@@ -526,13 +517,12 @@ class MVSegOrderingExperiment():
         Given a set of candidate data indices and the current context, select
         the index with lowest or highest uncertainty according to the curriculum.
         """
-        if self.curriculum is None:
-            raise RuntimeError("Curriculum configuration is not set.")
+        curriculum_cfg = self._get_curriculum_config()
         if not candidate_indices:
             raise ValueError("candidate_indices must be a non-empty sequence.")
 
         scored: list[tuple[int, float]] = []
-        tyche_augs = self.tyche_sampler.sample_augs_with_params(N=self.curriculum.k)
+        tyche_augs = curriculum_cfg.tyche_sampler.sample_augs_with_params(N=curriculum_cfg.k)
 
         for data_idx in candidate_indices:
             image, _ = self.support_dataset.get_item_by_data_index(data_idx)
@@ -546,7 +536,7 @@ class MVSegOrderingExperiment():
             )
             scored.append((data_idx, score))
 
-        if self.curriculum.reverse:
+        if curriculum_cfg.reverse:
             # Reverse curriculum: pick the highest-uncertainty image.
             selected_idx, _ = max(scored, key=lambda x: x[1])
         else:
