@@ -93,6 +93,7 @@ class WBCDataset(Dataset):
             seg = seg[self._ilabel][None]
         return img, seg
     
+    # Directly index data using the original ID 
     def get_item_by_data_index(self, data_idx: int):
         """Return an item using the underlying dataset index."""
         img, seg = self._data[data_idx]

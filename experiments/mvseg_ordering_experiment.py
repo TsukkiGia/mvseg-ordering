@@ -43,16 +43,15 @@ class MVSegOrderingExperiment():
         prompt_generator: Any,
         prompt_iterations: int,
         commit_ground_truth: bool,
-        permutations: int,
         dice_cutoff: float,
         interaction_protocol: str,
         script_dir: Path,
+        ordering_config: OrderingConfig,
         should_visualize: bool = False,
         seed: int = 23,
         device: Optional[torch.device] = None,
         eval_fraction: Optional[float] = 0.1,
         eval_checkpoints: Optional[Sequence[int]] = None,
-        ordering_config: Optional[OrderingConfig] = None,
     ):
         if device is not None:
             resolved_device = torch.device(device)
@@ -68,10 +67,8 @@ class MVSegOrderingExperiment():
         self.model.eval()
         self.prompt_iterations = prompt_iterations
         self.commit_ground_truth = commit_ground_truth
-        self.permutations = permutations
-        self.ordering_config = ordering_config or RandomConfig(
-            seed=seed, permutation_indices=list(range(permutations))
-        )
+        self.ordering_config = ordering_config
+        
         self.dice_cutoff = dice_cutoff
         self.seed = seed
         self.interaction_protocol = interaction_protocol
@@ -108,7 +105,6 @@ class MVSegOrderingExperiment():
 
     def run_permutations(self):
         train_indices = list(self.support_dataset.get_data_indices())
-
         all_iterations = []
         all_images = []
         all_eval_iterations = []
@@ -715,11 +711,11 @@ if __name__ == "__main__":
         prompt_generator=prompt_generator, 
         prompt_iterations=20, 
         commit_ground_truth=False, 
-        permutations=5, 
         dice_cutoff=0.9, 
         interaction_protocol=f"{protocol_desc}",
         script_dir=script_dir,
-        should_visualize=False
+        should_visualize=False,
+        ordering_config=RandomConfig(seed=23, permutations=5),
     )
     experiment.run_permutations()
 
@@ -727,9 +723,10 @@ if __name__ == "__main__":
     # experiment = MVSegOrderingExperiment(
     #     dataset=d_support, 
     #     prompt_generator=prompt_generator, 
-    #     prompt_iterations=5, 
-    #     commit_ground_truth=True, 
-    #     permutations=10, 
-    #     dice_cutoff=0.9, 
-    #     interaction_protocol=str(experiment_number))
+    #     prompt_iterations=5,
+    #     commit_ground_truth=True,
+    #     dice_cutoff=0.9,
+    #     interaction_protocol=str(experiment_number),
+    #     ordering_config=RandomConfig(seed=23, permutations=10),
+    # )
         

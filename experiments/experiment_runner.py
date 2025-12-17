@@ -17,7 +17,7 @@ import pandas as pd
 from .dataset.wbc_multiple_perms import WBCDataset
 from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
-from .ordering_config import RandomConfig
+from .ordering_config import RandomConfig, MSEProximityConfig, OrderingConfig
 from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
 
@@ -34,7 +34,6 @@ class ExperimentSetup:
     prompt_config_key: str
     prompt_iterations: int
     commit_ground_truth: bool
-    permutations: int
     dice_cutoff: float
     script_dir: Path
     should_visualize: bool
@@ -45,6 +44,7 @@ class ExperimentSetup:
     shards: int = 1
     device: str = "cpu"
     task_name: Optional[str] = None
+    ordering_config_path: Optional[Path] = None
 
 
 class _SubsetDataset:
@@ -73,6 +73,49 @@ def load_prompt_generator(config_path: Path, key: str):
         f"{prompt_cfg.get('correction_clicks', 0)}_corrections"
     )
     return prompt_generator, protocol_desc
+
+
+def load_ordering_config(
+    config_path: Optional[Path],
+    seed: int,
+    shard_id: Optional[int] = None,
+    shard_count: Optional[int] = None,
+    default_permutations: int = 100,
+) -> OrderingConfig:
+    if config_path is None:
+        return RandomConfig(
+            seed=seed,
+            permutations=default_permutations,
+        )
+
+    with open(config_path, "r", encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh) or {}
+
+    cfg_type = str(cfg.get("type", "random")).lower()
+    if cfg.get("permutations") is None:
+        raise ValueError("ordering_config must specify 'permutations'")
+    permutations = int(cfg.get("permutations"))
+
+    if cfg_type == "random":
+        return RandomConfig(
+                seed=seed,
+                permutations=permutations,
+                shard_id=shard_id,
+                shard_count=shard_count,
+            )
+    if cfg_type == "mse_proximity":
+        mode = cfg.get("mode", "min")
+        alternate_start = cfg.get("alternate_start", "min")
+        return MSEProximityConfig(
+                seed=seed,
+                permutations=permutations,
+                shard_id=shard_id,
+                shard_count=shard_count,
+                mode=mode,
+                alternate_start=alternate_start,
+        )
+
+    raise ValueError(f"Unknown ordering config type: {cfg_type}")
 
 
 def sample_disjoint_subsets(indices: Sequence[int], subset_size: int, seed: int) -> list[list[int]]:
@@ -180,22 +223,19 @@ def merge_shard_results(target_dir: Path, shard_dirs: Sequence[Path]) -> None:
             merged.to_csv(target_results_dir / filename, index=False)
 
 
-def run_shard_worker(shard_dir: str, shard_indices: Sequence[int], setup: ExperimentSetup, shard_id: int) -> None:
+def run_shard_worker(shard_dir: str, setup: ExperimentSetup, shard_id: int, ordering_config: OrderingConfig) -> None:
     shard_path = Path(shard_dir)
     shard_path.mkdir(parents=True, exist_ok=True)
 
     prompt_generator, interaction_protocol = load_prompt_generator(
         setup.prompt_config_path, setup.prompt_config_key
-    )
-
-    ordering_config = RandomConfig(seed=setup.seed, permutation_indices=shard_indices)
+    ) 
 
     experiment = MVSegOrderingExperiment(
         support_dataset=setup.support_dataset,
         prompt_generator=prompt_generator,
         prompt_iterations=setup.prompt_iterations,
         commit_ground_truth=setup.commit_ground_truth,
-        permutations=setup.permutations,
         dice_cutoff=setup.dice_cutoff,
         interaction_protocol=interaction_protocol,
         seed=setup.seed,
@@ -216,12 +256,15 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
         prompt_generator, interaction_protocol = load_prompt_generator(
             setup.prompt_config_path, setup.prompt_config_key
         )
+        ordering_config = load_ordering_config(
+            config_path=setup.ordering_config_path,
+            seed=setup.seed,
+        )
         experiment = MVSegOrderingExperiment(
             support_dataset=support_dataset,
             prompt_generator=prompt_generator,
             prompt_iterations=setup.prompt_iterations,
             commit_ground_truth=setup.commit_ground_truth,
-            permutations=setup.permutations,
             dice_cutoff=setup.dice_cutoff,
             interaction_protocol=interaction_protocol,
             seed=setup.seed,
@@ -230,27 +273,29 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
             device=setup.device,
             eval_fraction=setup.eval_fraction,
             eval_checkpoints=setup.eval_checkpoints,
+            ordering_config=ordering_config,
         )
         experiment.run_permutations()
         generate_plan_a_outputs(setup.script_dir / "results")
         return
 
-    permutation_indices = list(range(setup.permutations))
-    shard_size = math.ceil(len(permutation_indices) / setup.shards)
     shard_dirs: list[Path] = []
     processes: list[mp.Process] = []
     for shard_id in range(setup.shards):
-        start = shard_id * shard_size
-        end = min((shard_id + 1) * shard_size, len(permutation_indices))
-        shard_indices = permutation_indices[start:end]
-        if not shard_indices:
+        ordering_config = load_ordering_config(
+            config_path=setup.ordering_config_path,
+            seed=setup.seed,
+            shard_id=shard_id,
+            shard_count=setup.shards,
+            )
+
+        if len(ordering_config.permutation_indices) < 1:
             continue
         shard_dir = setup.script_dir / f"Shard_{shard_id}"
         shard_dirs.append(shard_dir)
-
         proc = mp.Process(
             target=run_shard_worker,
-            args=(str(shard_dir), shard_indices, setup, shard_id),
+            args=(str(shard_dir), setup, shard_id, ordering_config),
         )
         proc.start()
         processes.append(proc)

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import yaml
 from experiments.experiment_runner import ExperimentSetup, run_experiment
@@ -200,13 +200,15 @@ def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> Exp
     else:
         subset_size = cfg.get("plan_b_subset_size", cfg.get("subset_size"))
 
+    ordering_cfg_path = cfg.get("ordering_config_path")
+    resolved_ordering_path = None if ordering_cfg_path is None else Path(ordering_cfg_path)
+
     setup = ExperimentSetup(
         support_dataset=support_dataset,
         prompt_config_path=pc_path,
         prompt_config_key=cfg.get("prompt_config_key"),
         prompt_iterations=int(cfg.get("prompt_iterations")),
         commit_ground_truth=bool(cfg.get("commit_ground_truth", False)),
-        permutations=int(cfg.get("permutations")),
         dice_cutoff=float(cfg.get("dice_cutoff")),
         script_dir=script_dir,
         should_visualize=not bool(cfg.get("no_visualize", False)),
@@ -217,6 +219,7 @@ def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> Exp
         eval_fraction=eval_fraction,
         eval_checkpoints=eval_checkpoints,
         task_name=cfg.get("task_name"),
+        ordering_config_path=resolved_ordering_path,
     )
     return setup
 
@@ -295,9 +298,9 @@ def main() -> None:
         msg = (
             f"\n# {tag} -> {setup.script_dir}\n"
             f"dice_cutoff={setup.dice_cutoff} commit_gt={setup.commit_ground_truth} "
-            f"permutations={setup.permutations} device={setup.device} shards={setup.shards}\n"
+            f"device={setup.device} shards={setup.shards}\n"
             f"subset_size={setup.subset_size} eval_fraction={setup.eval_fraction} "
-            f"eval_checkpoints={setup.eval_checkpoints}"
+            f"eval_checkpoints={setup.eval_checkpoints} ordering_config={setup.ordering_config_path}"
         )
         print(msg)
         if args.run:

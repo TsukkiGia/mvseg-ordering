@@ -3,8 +3,25 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence
 
 import numpy as np
+import math
 import torch
 from .dataset.tyche_augs import TycheAugs
+
+
+def _compute_shard_indices(
+    total: int, shard_id: Optional[int], shard_count: Optional[int]
+) -> list[int]:
+    if shard_id is None or shard_count is None or shard_count <= 1:
+        return list(range(total))
+    shard_id = int(shard_id)
+    shard_count = int(shard_count)
+    if shard_id < 0 or shard_id >= shard_count:
+        raise ValueError("shard_id must be in [0, shard_count).")
+    
+    shard_size = math.ceil(total / shard_count)
+    start = shard_id * shard_size
+    end = min((shard_id + 1) * shard_size, total)
+    return list(range(start, end))
 
 
 class OrderingConfig:
@@ -12,6 +29,7 @@ class OrderingConfig:
 
     def __init__(self, seed: int) -> None:
         self.seed = seed
+        self.permutation_indices = []
 
     def get_orderings(
         self,
@@ -46,9 +64,18 @@ class OrderingConfig:
 class RandomConfig(OrderingConfig):
     """Randomly permutes support indices using deterministic seeds."""
 
-    def __init__(self, seed: int, permutation_indices: Sequence[int]) -> None:
+    def __init__(
+        self,
+        seed: int,
+        permutations: int,
+        shard_id: Optional[int] = None,
+        shard_count: Optional[int] = None,
+    ) -> None:
         super().__init__(seed=seed)
-        self.permutation_indices = list(permutation_indices)
+        if shard_id is not None and shard_count is not None:
+            self.permutation_indices = _compute_shard_indices(permutations, shard_id, shard_count)
+        else:
+            self.permutation_indices = list(range(permutations))
 
     def get_orderings(
         self,
@@ -56,7 +83,6 @@ class RandomConfig(OrderingConfig):
         candidate_indices: Sequence[int],
     ) -> list[list[int]]:
         support_indices = list(candidate_indices)
-
         orderings: list[list[int]] = []
         for permutation_index in self.permutation_indices:
             perm_gen_seed = self.seed + permutation_index
@@ -85,21 +111,27 @@ class MSEProximityConfig(OrderingConfig):
     def __init__(
         self,
         seed: int,
-        permutation_indices: Sequence[int],
+        permutations: int,
+        shard_id: Optional[int] = None,
+        shard_count: Optional[int] = None,
         mode: str = "min",
         alternate_start: str = "min",
     ) -> None:
         """
         Args:
             seed: base seed for deterministic starts.
-            permutation_indices: identifiers for each ordering.
+            permutations: total number of permutations.
             mode: "min" (always smallest MSE), "max" (always largest MSE),
                   or "alternate" (switch each step).
             alternate_start: when mode="alternate", choose whether to start with
                   "min" or "max".
         """
         super().__init__(seed=seed)
-        self.permutation_indices = list(permutation_indices)
+        if shard_id is not None and shard_count is not None:
+            self.permutation_indices = _compute_shard_indices(permutations, shard_id, shard_count)
+        else:
+            self.permutation_indices = list(range(permutations))
+
         self.mode = mode.lower()
         self.alternate_start = alternate_start.lower()
 
