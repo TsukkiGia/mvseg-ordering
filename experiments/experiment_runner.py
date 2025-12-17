@@ -24,6 +24,7 @@ from pylot.experiment.util import eval_config
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROMPT_CONFIG_DIR = SCRIPT_DIR / "prompt_generator_configs"
 SUBSET_SEED_STRIDE = 1000
+K_DEFAULT = 100
 
 
 @dataclass(frozen=True)
@@ -80,12 +81,11 @@ def load_ordering_config(
     seed: int,
     shard_id: Optional[int] = None,
     shard_count: Optional[int] = None,
-    default_permutations: int = 100,
 ) -> OrderingConfig:
     if config_path is None:
         return RandomConfig(
             seed=seed,
-            permutations=default_permutations,
+            permutations=K_DEFAULT,
         )
 
     with open(config_path, "r", encoding="utf-8") as fh:
@@ -369,7 +369,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Commit ground-truth labels during context updates.",
     )
-    parser.add_argument("--permutations", type=int, default=1, help="Number of permutations to evaluate.")
     parser.add_argument("--dice-cutoff", type=float, default=0.9, help="Dice threshold for early stopping.")
     parser.add_argument(
         "--experiment-seed",
@@ -484,7 +483,6 @@ if __name__ == "__main__":
         prompt_config_key=args.prompt_config_key,
         prompt_iterations=args.prompt_iterations,
         commit_ground_truth=args.commit_ground_truth,
-        permutations=args.permutations,
         dice_cutoff=args.dice_cutoff,
         script_dir=args.script_dir,
         should_visualize=args.should_visualize,
