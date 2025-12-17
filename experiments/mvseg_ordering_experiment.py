@@ -387,12 +387,11 @@ class MVSegOrderingExperiment():
         seed_folder_dir: Path,
     ):
         score_value = float(dice_score((yhat > 0).float(), label[None, ...]).item())
-        iterations_used = 0
         prompts = None
         context_size = 0 if context_images is None else len(context_images[0])
+        iterations_needed = None
 
         for iteration in range(self.prompt_iterations):
-            iterations_used = iteration + 1
             if iteration == 0:
                 prompts = self.prompt_generator(image[None], label[None])
             else:
@@ -438,10 +437,11 @@ class MVSegOrderingExperiment():
                 context_size=context_size
             )
 
-            if score_value >= self.dice_cutoff:
-                break
-
-        return score_value, iterations_used, yhat
+            if score_value >= self.dice_cutoff and iterations_needed is None:
+                iterations_needed = iteration + 1
+        if iterations_needed is None:
+            iterations_needed = self.prompt_iterations
+        return score_value, iterations_needed, yhat
 
     def _get_curriculum_config(self) -> CurriculumConfig:
         if not isinstance(self.ordering_config, CurriculumConfig):
