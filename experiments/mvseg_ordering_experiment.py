@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scribbleprompt.analysis.plot import show_points
 from typing import Union, Dict
-from .ordering_config import OrderingConfig, RandomConfig, CurriculumConfig
+from .ordering import OrderingConfig, RandomConfig, CurriculumConfig
 DatasetType = Union[WBCDataset, MegaMedicalDataset]
 DEFAULT_EVAL_STEP = 5
 

@@ -1,0 +1,4 @@
+type: mse_proximity
+permutations: 100
+mode: alternate
+alternate_start: min

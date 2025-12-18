@@ -17,7 +17,7 @@ import pandas as pd
 from .dataset.wbc_multiple_perms import WBCDataset
 from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
-from .ordering_config import RandomConfig, MSEProximityConfig, OrderingConfig
+from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig
 from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
 
