@@ -120,15 +120,18 @@ def load_ordering_config(
 
 def sample_disjoint_subsets(indices: Sequence[int], subset_size: int, seed: int) -> list[list[int]]:
     rng = np.random.default_rng(seed)
-    permuted = rng.permutation(indices).tolist()
     subsets: list[list[int]] = []
-    subset_count = math.floor(len(indices)/subset_size)
-    for i in range(subset_count):
-        start = i * subset_size
-        end = start + subset_size
-        if end > len(permuted):
-            break
-        subsets.append(permuted[start:end])
+    if subset_size <= 0:
+        return subsets
+
+    remaining = list(indices)
+    while len(remaining) >= subset_size:
+        # Sample a subset uniformly without replacement from remaining indices.
+        choice = rng.choice(remaining, size=subset_size, replace=False)
+        subset = choice.tolist()
+        subsets.append(subset)
+        chosen_set = set(subset)
+        remaining = [idx for idx in remaining if idx not in chosen_set]
     return subsets
 
 
