@@ -286,7 +286,8 @@ class MVSegOrderingExperiment():
         image_id: Any,
         initial_dice: float,
         final_dice: float,
-        iterations_used: int,
+        dice_at_goal: float,
+        iterations_to_goal: int,
         reached_cutoff: bool,
         context_size: int
     ) -> None:
@@ -299,7 +300,8 @@ class MVSegOrderingExperiment():
             "image_id": image_id,
             "initial_dice": initial_dice,
             "final_dice": final_dice,
-            "iterations_used": iterations_used,
+            "dice_at_goal": dice_at_goal,
+            "iterations_to_goal": iterations_to_goal,
             "reached_cutoff": reached_cutoff,
             "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
             "protocol": self.interaction_protocol,
@@ -425,10 +427,13 @@ class MVSegOrderingExperiment():
         ordering_index: int,
         seed_folder_dir: Path,
     ):
-        score_value = float(dice_score((yhat > 0).float(), label[None, ...]).item())
+        # Score at goal
+        goal_yhat = None
+        score_at_goal = None
+        iterations_needed = None
+
         prompts = None
         context_size = 0 if context_images is None else len(context_images[0])
-        iterations_needed = None
 
         for iteration in range(self.prompt_iterations):
             if iteration == 0:
@@ -478,9 +483,14 @@ class MVSegOrderingExperiment():
 
             if score_value >= self.dice_cutoff and iterations_needed is None:
                 iterations_needed = iteration + 1
+                goal_yhat = yhat
+                score_at_goal = score_value
+
         if iterations_needed is None:
             iterations_needed = self.prompt_iterations
-        return score_value, iterations_needed, yhat
+            goal_yhat = yhat
+            score_at_goal = score_value
+        return score_value, iterations_needed, goal_yhat, score_at_goal
 
     def _get_curriculum_config(self) -> UncertaintyConfig:
         if not isinstance(self.ordering_config, UncertaintyConfig):
@@ -551,10 +561,23 @@ class MVSegOrderingExperiment():
                 )
 
                 if initial_dice >= self.dice_cutoff:
-                    final_dice = initial_dice
                     iterations_used = 0
+                    dice_at_goal = initial_dice
+                    final_dice, _, _, _ = self._run_prompt_loop(
+                        image=image,
+                        label=label,
+                        image_index=len(ordering_sequence) - 1,
+                        image_id=current_index,
+                        context_images=context_images,
+                        context_labels=context_labels,
+                        yhat=yhat,
+                        rows=rows,
+                        perm_gen_seed=perm_gen_seed,
+                        ordering_index=start_index,
+                        seed_folder_dir=seed_folder_dir,
+                    )
                 else:
-                    final_dice, iterations_used, yhat = self._run_prompt_loop(
+                    final_dice, iterations_used, yhat, dice_at_goal = self._run_prompt_loop(
                         image=image,
                         label=label,
                         image_index=len(ordering_sequence) - 1,
@@ -576,8 +599,9 @@ class MVSegOrderingExperiment():
                     image_id=current_index,
                     initial_dice=initial_dice,
                     final_dice=final_dice,
+                    dice_at_goal=dice_at_goal,
                     iterations_used=iterations_used,
-                    reached_cutoff=final_dice >= self.dice_cutoff,
+                    reached_cutoff=dice_at_goal >= self.dice_cutoff,
                     context_size=context_size,
                 )
 
@@ -686,20 +710,9 @@ class MVSegOrderingExperiment():
             )
 
             if initial_dice >= self.dice_cutoff:
-                self._append_image_summary_record(
-                    image_summary_rows=image_summary_rows,
-                    perm_gen_seed=perm_gen_seed,
-                    ordering_index=ordering_index,
-                    image_index=index,
-                    image_id=image_id,
-                    initial_dice=initial_dice,
-                    final_dice=initial_dice,
-                    iterations_used=0,
-                    reached_cutoff=True,
-                    context_size=context_size
-                )
-            else:
-                final_dice, iterations_used, yhat = self._run_prompt_loop(
+                iterations_used = 0
+                dice_at_goal = initial_dice
+                final_dice, _, _, _ = self._run_prompt_loop(
                     image=image,
                     label=label,
                     image_index=index,
@@ -712,18 +725,33 @@ class MVSegOrderingExperiment():
                     ordering_index=ordering_index,
                     seed_folder_dir=seed_folder_dir,
                 )
-                self._append_image_summary_record(
-                    image_summary_rows=image_summary_rows,
-                    perm_gen_seed=perm_gen_seed,
-                    ordering_index=ordering_index,
+            else:
+                final_dice, iterations_used, yhat, dice_at_goal = self._run_prompt_loop(
+                    image=image,
+                    label=label,
                     image_index=index,
                     image_id=image_id,
-                    initial_dice=initial_dice,
-                    final_dice=final_dice,
-                    iterations_used=iterations_used,
-                    reached_cutoff=final_dice >= self.dice_cutoff,
-                    context_size=context_size,
+                    context_images=context_images,
+                    context_labels=context_labels,
+                    yhat=yhat,
+                    rows=rows,
+                    perm_gen_seed=perm_gen_seed,
+                    ordering_index=ordering_index,
+                    seed_folder_dir=seed_folder_dir,
                 )
+            self._append_image_summary_record(
+                image_summary_rows=image_summary_rows,
+                perm_gen_seed=perm_gen_seed,
+                ordering_index=ordering_index,
+                image_index=index,
+                image_id=image_id,
+                initial_dice=initial_dice,
+                final_dice=final_dice,
+                dice_at_goal=dice_at_goal,
+                iterations_to_goal=iterations_used,
+                reached_cutoff=dice_at_goal >= self.dice_cutoff,
+                context_size=context_size,
+            )
 
             if update_context:
                 context_images, context_labels = self._update_context(
