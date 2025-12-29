@@ -29,9 +29,10 @@ def compute_shard_indices(
 class OrderingConfig:
     """Base class for defining ordering strategies for interactive segmentation."""
 
-    def __init__(self, seed: int) -> None:
+    def __init__(self, seed: int, name: Optional[str] = None) -> None:
         self.seed = seed
         self.permutation_indices: list[int] = []
+        self.name = name
 
     def get_orderings(
         self,

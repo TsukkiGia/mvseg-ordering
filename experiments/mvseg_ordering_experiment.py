@@ -222,6 +222,7 @@ class MVSegOrderingExperiment():
         context_size: int
     ) -> None:
         rows.append({
+            "policy_name": self.ordering_config.name,
             "experiment_seed": self.seed,
             "perm_gen_seed": perm_gen_seed,
             "permutation_index": ordering_index,
@@ -251,6 +252,7 @@ class MVSegOrderingExperiment():
         context_size: int
     ) -> None:
         image_summary_rows.append({
+            "policy_name": self.ordering_config.name,
             "experiment_seed": self.seed,
             "perm_gen_seed": perm_gen_seed,
             "permutation_index": ordering_index,

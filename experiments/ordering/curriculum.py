@@ -24,8 +24,9 @@ class CurriculumConfig(OrderingConfig):
         k: int,
         tyche_sampler: TycheAugs,
         reverse: bool = False,
+        name: Optional[str] = None,
     ) -> None:
-        super().__init__(seed=seed)
+        super().__init__(seed=seed, name=name)
         self.metric = metric
         self.k = k
         self.reverse = reverse

@@ -86,12 +86,16 @@ def load_ordering_config(
         return RandomConfig(
             seed=seed,
             permutations=K_DEFAULT,
+            name="random",
         )
 
     with open(config_path, "r", encoding="utf-8") as fh:
         cfg = yaml.safe_load(fh) or {}
 
     cfg_type = str(cfg.get("type", "random")).lower()
+    name = str(cfg.get("name") or "").strip()
+    if not name:
+        raise ValueError("ordering_config must specify non-empty 'name'")
     if cfg.get("permutations") is None:
         raise ValueError("ordering_config must specify 'permutations'")
     permutations = int(cfg.get("permutations"))
@@ -102,6 +106,7 @@ def load_ordering_config(
                 permutations=permutations,
                 shard_id=shard_id,
                 shard_count=shard_count,
+                name=name,
             )
     if cfg_type == "mse_proximity":
         mode = cfg.get("mode", "min")
@@ -113,6 +118,7 @@ def load_ordering_config(
                 shard_count=shard_count,
                 mode=mode,
                 alternate_start=alternate_start,
+                name=name,
         )
 
     raise ValueError(f"Unknown ordering config type: {cfg_type}")

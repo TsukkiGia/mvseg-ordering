@@ -27,6 +27,22 @@ from experiments.dataset.wbc_multiple_perms import WBCDataset
 from experiments.dataset.multisegment2d import MultiBinarySegment2D
 
 
+def _ordering_meta(path: Path) -> tuple[str, str]:
+    """
+    Return (type, name) for an ordering config YAML, with validation.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"ordering_config_path not found: {path}")
+    cfg = yaml.safe_load(path.read_text()) or {}
+    policy_type = str(cfg.get("type", "random")).strip().lower()
+    name = str(cfg.get("name") or "").strip()
+    if not policy_type:
+        raise ValueError(f"Invalid ordering_config at {path}: missing non-empty 'type'")
+    if not name:
+        raise ValueError(f"Invalid ordering_config at {path}: missing non-empty 'name'")
+    return policy_type, name
+
+
 
 def _validate_megamedical_cfg(cfg: dict[str, Any]) -> None:
     if not cfg.get("use_mega_dataset", False):
@@ -115,30 +131,25 @@ def expand_megamedical_entry(
     ablation_dir = base_script_dir.name
 
     expanded: list[dict[str, Any]] = []
+    
+    # for each task make a copy of shared elements + task specific things
     for idx, row in subset.head(dataset_limit).iterrows():
         base_component = row["task"].replace("/", "_")
         task_component = f"{base_component}_label{int(row['label'])}_{row['slicing']}_idx{int(idx)}"
         target_dir = base_root / task_component / ablation_dir
 
         cfg = dict(exp)
-        for key in (
-            "mega_dataset_name",
-            "mega_task",
-            "mega_label",
-            "mega_slicing",
-            "mega_axis",
-            "mega_dataset_limit",
-        ):
-            cfg.pop(key, None)
-
-        # Preserve the resolved split so build_setup can honor it.
-        cfg["mega_dataset_split"] = dataset_split
-        cfg["mega_target_index"] = int(idx)
-        cfg["mega_task"] = row["task"]
-        cfg["mega_label"] = int(row["label"])
-        cfg["mega_slicing"] = row["slicing"]
-        cfg["script_dir"] = str(target_dir)
-        cfg["task_name"] = row["task"]
+        cfg.update(
+            # Preserve the resolved split so build_setup can honor it.
+            mega_dataset_split=dataset_split,
+            mega_target_index=int(idx),
+            mega_task=row["task"],
+            mega_label=int(row["label"]),
+            mega_slicing=row["slicing"],
+            mega_axis=row.get("axis"),
+            script_dir=str(target_dir),
+            task_name=row["task"],
+        )
 
         base_name = exp.get("name", "exp")
         cfg["name"] = f"{base_name}_{task_component}_{idx}"
@@ -241,8 +252,7 @@ def main() -> None:
     if not experiments:
         raise SystemExit("No experiments found in config")
 
-    target_groups: dict[str, list[tuple[str, ExperimentSetup]]] = {}
-    target_order: list[str] = []
+    setups: list[tuple[str, ExperimentSetup]] = []
     dataset_split = str(defaults.get("mega_dataset_split", "train")).strip()
     mega_loader: MultiBinarySegment2D | None = MultiBinarySegment2D(
             resolution=128,
@@ -263,6 +273,7 @@ def main() -> None:
         expanded_entries, mega_loader = expand_megamedical_entry(defaults, raw_exp, mega_loader)
         for exp in expanded_entries:
             plans = exp.get("plan", ["A"])  # default to Plan A
+            policies = exp.get("policies") or []
             for plan in plans:
                 if args.only_plan and plan != args.only_plan:
                     continue
@@ -272,26 +283,48 @@ def main() -> None:
                     raise ValueError("Missing script_dir in experiment entry")
                 script_dir_path = Path(script_dir_value)
 
-                if plan == "A":
-                    marker = script_dir_path / "A" / "results" / "support_images_summary.csv"
+                # Handle either a list of policies or a single baseline run.
+                if policies:
+                    policy_iter = policies
                 else:
-                    marker = script_dir_path / "B" / "subset_support_images_summary.csv"
+                    # Treat as a single “no-policy” entry using the base exp config.
+                    policy_iter = [None]
 
-                if marker.exists():
-                    print(
-                        f"[skip-existing] {exp.get('name','exp')}:{plan} — results already present at {marker}"
-                    )
-                    continue
-                setup = build_setup(defaults, exp, plan)
-                target_key = exp.get("task_name") or f"script::{setup.script_dir}"
-                if target_key not in target_groups:
-                    target_groups[target_key] = []
-                    target_order.append(target_key)
-                target_groups[target_key].append((f"{exp.get('name','exp')}:{plan}", setup))
+                for policy in policy_iter:
+                    policy_cfg = dict(exp)
+                    policy_cfg.pop("policies", None)
 
-    setups: list[tuple[str, ExperimentSetup]] = []
-    for key in target_order:
-        setups.extend(target_groups[key])
+                    if policy is not None:
+                        ordering_path = policy.get("ordering_config_path")
+                        if not ordering_path:
+                            raise ValueError("Each policy entry must include ordering_config_path.")
+                        ordering_path = Path(str(ordering_path))
+                        policy_cfg["ordering_config_path"] = str(ordering_path)
+                        policy_type, policy_name = _ordering_meta(ordering_path)
+                        policy_cfg["script_dir"] = str(script_dir_path / policy_name)
+                        tag_suffix = f"{policy_type}:{policy_name}"
+                    else:
+                        ordering_path = policy_cfg.get("ordering_config_path")
+                        policy_cfg["script_dir"] = str(script_dir_path)
+                        tag_suffix = None
+
+                    # Skip if results already exist for this plan/policy combo.
+                    if plan == "A":
+                        marker = Path(policy_cfg["script_dir"]) / "A" / "results" / "support_images_summary.csv"
+                    else:
+                        marker = Path(policy_cfg["script_dir"]) / "B" / "subset_support_images_summary.csv"
+                    if marker.exists():
+                        tag_display = f"{exp.get('name','exp')}:{plan}"
+                        if tag_suffix:
+                            tag_display += f":{tag_suffix}"
+                        print(f"[skip-existing] {tag_display} — results already present at {marker}")
+                        continue
+
+                    setup = build_setup(defaults, policy_cfg, plan)
+                    tag = f"{exp.get('name','exp')}:{plan}"
+                    if tag_suffix:
+                        tag += f":{tag_suffix}"
+                    setups.append((tag, setup))
 
     for tag, setup in setups:
         # Enriched dry-run summary for quick verification

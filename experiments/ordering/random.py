@@ -16,8 +16,9 @@ class RandomConfig(OrderingConfig):
         permutations: int,
         shard_id: Optional[int] = None,
         shard_count: Optional[int] = None,
+        name: Optional[str] = None,
     ) -> None:
-        super().__init__(seed=seed)
+        super().__init__(seed=seed, name=name)
         if shard_id is not None and shard_count is not None:
             self.permutation_indices = compute_shard_indices(permutations, shard_id, shard_count)
         else:

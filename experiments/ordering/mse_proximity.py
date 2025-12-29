@@ -26,6 +26,7 @@ class MSEProximityConfig(OrderingConfig):
         shard_count: Optional[int] = None,
         mode: str = "min",
         alternate_start: str = "min",
+        name: Optional[str] = None,
     ) -> None:
         """
         Args:
@@ -36,7 +37,7 @@ class MSEProximityConfig(OrderingConfig):
             alternate_start: when mode="alternate", choose whether to start with
                   "min" or "max".
         """
-        super().__init__(seed=seed)
+        super().__init__(seed=seed, name=name)
         if shard_id is not None and shard_count is not None:
             self.permutation_indices = compute_shard_indices(permutations, shard_id, shard_count)
         else:
