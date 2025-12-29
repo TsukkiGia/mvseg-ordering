@@ -17,7 +17,7 @@ import pandas as pd
 from .dataset.wbc_multiple_perms import WBCDataset
 from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
-from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, UncertaintyConfig
+from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, UncertaintyConfig, AdaptiveOrderingConfig, NonAdaptiveOrderingConfig
 from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
 from .dataset.tyche_augs import TycheAugs
@@ -105,28 +105,26 @@ def load_ordering_config(
 
     if cfg_type == "random":
         return RandomConfig(
-                seed=seed,
-                permutations=permutations,
-                shard_id=shard_id,
-                shard_count=shard_count,
-                name=name,
-            )
+            seed=seed,
+            permutations=permutations,
+            shard_id=shard_id,
+            shard_count=shard_count,
+            name=name,
+        )
     if cfg_type == "mse_proximity":
         mode = cfg.get("mode", "min")
         alternate_start = cfg.get("alternate_start", "min")
         return MSEProximityConfig(
-                seed=seed,
-                shard_id=shard_id,
-                shard_count=shard_count,
-                mode=mode,
-                alternate_start=alternate_start,
-                name=name,
+            seed=seed,
+            shard_id=shard_id,
+            shard_count=shard_count,
+            mode=mode,
+            alternate_start=alternate_start,
+            name=name,
         )
     if cfg_type == "uncertainty":
         metric = cfg.get("metric", "pairwise_dice")
         k = int(cfg.get("k", 3))
-        runs = cfg.get("runs")
-        runs = None if runs is None else int(runs)
         reverse = bool(cfg.get("reverse", False))
         tyche_seed = cfg.get("tyche_seed", seed)
         tyche_sampler = TycheAugs(seed=tyche_seed)
@@ -136,7 +134,6 @@ def load_ordering_config(
             k=k,
             tyche_sampler=tyche_sampler,
             reverse=reverse,
-            runs=runs,
             shard_id=shard_id,
             shard_count=shard_count,
             name=name,

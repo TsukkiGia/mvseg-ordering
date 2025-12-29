@@ -32,7 +32,7 @@ experiments:
   - name: pred_90_random_vs_mse
     dice_cutoff: 0.9
     commit_ground_truth: false
-    script_dir: experiments/scripts/random_v_MSE/example_random_vs_mse/
+    script_dir: experiments/scripts/random_v_MSE/example_random_vs_mse/abl
     plan: [B]
     policies:
       - ordering_config_path: experiments/ordering_configs/random_default.yaml

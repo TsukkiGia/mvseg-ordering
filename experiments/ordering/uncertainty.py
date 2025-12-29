@@ -6,10 +6,10 @@ import torch
 
 from ..dataset.tyche_augs import TycheAugs, apply_tyche_augs
 from ..score.uncertainty import binary_entropy_from_mc_probs, pairwise_dice_disagreement
-from .base import OrderingConfig
+from .base import AdaptiveOrderingConfig
 
 
-class CurriculumConfig(OrderingConfig):
+class UncertaintyConfig(AdaptiveOrderingConfig):
     """
     Curriculum-based ordering configuration.
 
@@ -24,6 +24,8 @@ class CurriculumConfig(OrderingConfig):
         k: int,
         tyche_sampler: TycheAugs,
         reverse: bool = False,
+        shard_id: Optional[int] = None,
+        shard_count: Optional[int] = None,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(seed=seed, name=name)
@@ -31,6 +33,8 @@ class CurriculumConfig(OrderingConfig):
         self.k = k
         self.reverse = reverse
         self.tyche_sampler = tyche_sampler
+        self.shard_id = shard_id
+        self.shard_count = shard_count
 
     def get_orderings(
         self,
@@ -38,19 +42,22 @@ class CurriculumConfig(OrderingConfig):
         candidate_indices: Sequence[int],
     ) -> list[list[int]]:
         raise NotImplementedError(
-            "Curriculum-based orderings require model-driven selection; "
-            "implement this method with curriculum logic."
+            "Uncertainty ordering is adaptive; use get_start_positions + select_index_by_uncertainty."
         )
 
     def get_ordering_labels(self) -> Sequence[int]:
-        raise NotImplementedError(
-            "Curriculum-based orderings must provide explicit labels."
-        )
+        return []
 
     def get_ordering_seeds(self) -> Sequence[int]:
-        raise NotImplementedError(
-            "Curriculum-based orderings must provide explicit seeds."
-        )
+        return []
+
+    def get_start_positions(self, candidate_indices: Sequence[int]) -> list[int]:
+        """Return the list of starting indices, optionally sharded."""
+        start_indices = list(candidate_indices)
+        # Shard slicing over the start positions
+        from .base import compute_shard_indices  # local import to avoid cycle
+        perm_indices = compute_shard_indices(len(start_indices), self.shard_id, self.shard_count)
+        return [start_indices[i] for i in perm_indices]
 
     def compute_uncertainty_score(
         self,

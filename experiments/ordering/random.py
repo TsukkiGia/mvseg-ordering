@@ -4,10 +4,10 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
-from .base import OrderingConfig, compute_shard_indices
+from .base import NonAdaptiveOrderingConfig, compute_shard_indices
 
 
-class RandomConfig(OrderingConfig):
+class RandomConfig(NonAdaptiveOrderingConfig):
     """Randomly permutes support indices using deterministic seeds."""
 
     def __init__(

@@ -34,31 +34,40 @@ class OrderingConfig:
         self.permutation_indices: list[int] = []
         self.name = name
 
+    # Non-adaptive configs override these; adaptive configs do not use them.
     def get_orderings(
         self,
         support_dataset: Any,
         candidate_indices: Sequence[int],
     ) -> list[list[int]]:
-        """
-        Return a list of orderings, each represented as a list of dataset indices.
-
-        Subclasses should override this method to implement specific strategies.
-        """
         raise NotImplementedError
 
     def get_ordering_labels(self) -> Sequence[int]:
-        """
-        Identifiers matching the orderings returned by `get_orderings`.
-
-        Labels are used for logging and selection (e.g., naming result folders
-        or filtering specific orderings).
-        """
         raise NotImplementedError
 
     def get_ordering_seeds(self) -> Sequence[int]:
-        """
-        Per-ordering seeds used to generate the ordering.
+        raise NotImplementedError
 
-        Length must match the number of orderings returned by `get_orderings`.
-        """
+
+class NonAdaptiveOrderingConfig(OrderingConfig):
+    """Static ordering computed up-front (e.g., random, MSE proximity)."""
+
+    def get_orderings(
+        self,
+        support_dataset: Any,
+        candidate_indices: Sequence[int],
+    ) -> list[list[int]]:
+        raise NotImplementedError
+
+    def get_ordering_labels(self) -> Sequence[int]:
+        raise NotImplementedError
+
+    def get_ordering_seeds(self) -> Sequence[int]:
+        raise NotImplementedError
+
+
+class AdaptiveOrderingConfig(OrderingConfig):
+    """Adaptive ordering selected online based on current context (e.g., uncertainty)."""
+
+    def get_start_positions(self, candidate_indices: Sequence[int]) -> list[int]:
         raise NotImplementedError

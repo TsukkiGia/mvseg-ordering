@@ -5,10 +5,10 @@ from typing import Any, Optional, Sequence
 import numpy as np
 import torch
 
-from .base import OrderingConfig, compute_shard_indices
+from .base import NonAdaptiveOrderingConfig, compute_shard_indices
 
 #TODO: Change to do all images in the dataset, instead of using permutations
-class MSEProximityConfig(OrderingConfig):
+class MSEProximityConfig(NonAdaptiveOrderingConfig):
     """
     Builds orderings by chaining images with nearest/farthest MSE neighbors.
 
@@ -71,6 +71,11 @@ class MSEProximityConfig(OrderingConfig):
         support_dataset: Any,
         candidate_indices: Sequence[int],
     ) -> list[list[int]]:
+        """
+        Generate one ordering per candidate image (start at each index once).
+
+        Sharding: slices the start indices so each shard gets a disjoint subset.
+        """
         support_indices = list(candidate_indices)
         orderings: list[list[int]] = []
 
@@ -118,7 +123,9 @@ class MSEProximityConfig(OrderingConfig):
         return orderings
 
     def get_ordering_labels(self) -> Sequence[int]:
+        """Permutation labels (start indices) used for logging."""
         return self.permutation_indices
 
     def get_ordering_seeds(self) -> Sequence[int]:
+        """Seeds tied to each permutation label."""
         return [self.seed + idx for idx in self.permutation_indices]

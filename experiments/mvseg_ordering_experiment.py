@@ -29,7 +29,13 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scribbleprompt.analysis.plot import show_points
 from typing import Union, Dict
-from .ordering import OrderingConfig, RandomConfig, UncertaintyConfig
+from .ordering import (
+    OrderingConfig,
+    RandomConfig,
+    UncertaintyConfig,
+    AdaptiveOrderingConfig,
+    NonAdaptiveOrderingConfig,
+)
 DatasetType = Union[WBCDataset, MegaMedicalDataset]
 DEFAULT_EVAL_STEP = 5
 
@@ -122,8 +128,8 @@ class MVSegOrderingExperiment():
                     "Reduce eval_fraction or provide a larger dataset."
                 )
 
-        # Handle adaptive uncertainty ordering separately (select next based on context).
-        if isinstance(self.ordering_config, UncertaintyConfig):
+        # Branch: adaptive (online) vs non-adaptive (precomputed) orderings.
+        if isinstance(self.ordering_config, AdaptiveOrderingConfig):
             (
                 all_iterations,
                 all_images,
