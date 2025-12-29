@@ -96,9 +96,13 @@ def load_ordering_config(
     name = str(cfg.get("name") or "").strip()
     if not name:
         raise ValueError("ordering_config must specify non-empty 'name'")
-    if cfg.get("permutations") is None:
+    permutations = cfg.get("permutations")
+    if cfg_type == "mse_proximity":
+        permutations = None  # ignored for mse_proximity
+    elif permutations is None:
         raise ValueError("ordering_config must specify 'permutations'")
-    permutations = int(cfg.get("permutations"))
+    else:
+        permutations = int(permutations)
 
     if cfg_type == "random":
         return RandomConfig(
@@ -113,7 +117,6 @@ def load_ordering_config(
         alternate_start = cfg.get("alternate_start", "min")
         return MSEProximityConfig(
                 seed=seed,
-                permutations=permutations,
                 shard_id=shard_id,
                 shard_count=shard_count,
                 mode=mode,

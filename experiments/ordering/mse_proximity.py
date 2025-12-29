@@ -21,7 +21,6 @@ class MSEProximityConfig(OrderingConfig):
     def __init__(
         self,
         seed: int,
-        permutations: int,
         shard_id: Optional[int] = None,
         shard_count: Optional[int] = None,
         mode: str = "min",
@@ -31,17 +30,16 @@ class MSEProximityConfig(OrderingConfig):
         """
         Args:
             seed: base seed for deterministic starts.
-            permutations: total number of permutations.
             mode: "min" (always smallest MSE), "max" (always largest MSE),
                   or "alternate" (switch each step).
             alternate_start: when mode="alternate", choose whether to start with
                   "min" or "max".
         """
         super().__init__(seed=seed, name=name)
-        if shard_id is not None and shard_count is not None:
-            self.permutation_indices = compute_shard_indices(permutations, shard_id, shard_count)
-        else:
-            self.permutation_indices = list(range(permutations))
+        self.shard_id = shard_id
+        self.shard_count = shard_count
+        # Populated in get_orderings based on dataset size.
+        self.permutation_indices: list[int] = []
 
         self.mode = mode.lower()
         self.alternate_start = alternate_start.lower()
@@ -76,6 +74,11 @@ class MSEProximityConfig(OrderingConfig):
         support_indices = list(candidate_indices)
         orderings: list[list[int]] = []
 
+        # Clamp total permutations to dataset size; recompute shard slice now that size is known.
+        total_perms = len(support_indices)
+        perm_indices = compute_shard_indices(total_perms, self.shard_id, self.shard_count)
+        self.permutation_indices = perm_indices
+
         # Pre-load images once to avoid repeated dataset access.
         # TODO: to(self.device)
         image_cache: dict[int, torch.Tensor] = {
@@ -83,10 +86,10 @@ class MSEProximityConfig(OrderingConfig):
             for idx in support_indices
         }
 
-        for permutation_index in self.permutation_indices:
-            rng = np.random.default_rng(self.seed + permutation_index)
+        for permutation_index in perm_indices:
             remaining = support_indices.copy()
-            start_idx = int(rng.choice(remaining))
+            # Deterministic start based on permutation index (ties to dataset position)
+            start_idx = remaining[permutation_index % len(remaining)]
             ordering: list[int] = [start_idx]
             remaining.remove(start_idx)
 

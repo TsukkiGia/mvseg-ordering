@@ -1,0 +1,42 @@
+version: 1
+
+# Example recipe: compare Random ordering vs MSE-proximity ordering.
+#
+# Dry run (prints planned runs without executing):
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_v_MSE/example_random_vs_mse.yaml
+#
+# Execute:
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_v_MSE/example_random_vs_mse.yaml --run
+#
+# Notes:
+# - Each entry under `policies` becomes its own subfolder under `script_dir`, using
+#   the `name` field from the referenced ordering-config YAML.
+# - Plan B samples disjoint subsets of size `plan_b_subset_size` from the dataset.
+
+defaults:
+  prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
+  prompt_config_key: click_generator
+  prompt_iterations: 20
+  plan_b_subset_size: 10
+  use_mega_dataset: true
+  mega_dataset_name: WBC
+  mega_dataset_split: train
+
+  # Runtime
+  no_visualize: false
+  device: cuda
+  shards: 4
+  experiment_seed: 23
+
+experiments:
+  - name: pred_90_random_vs_mse
+    dice_cutoff: 0.9
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_MSE/example_random_vs_mse/
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_min.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_max.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml

@@ -1,5 +1,4 @@
 type: mse_proximity
 name: mse_alternate_start_max
-permutations: 100
 mode: alternate
 alternate_start: max

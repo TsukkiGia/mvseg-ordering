@@ -1,5 +1,4 @@
 type: mse_proximity
 name: mse_min
-permutations: 100
 mode: min
 alternate_start: min
