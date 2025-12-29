@@ -5,7 +5,7 @@ Existing imports of `experiments.ordering_config` will continue to work.
 """
 
 from .ordering import (
-    CurriculumConfig,
+    UncertaintyConfig,
     MSEProximityConfig,
     OrderingConfig,
     RandomConfig,
@@ -16,6 +16,6 @@ __all__ = [
     "OrderingConfig",
     "RandomConfig",
     "MSEProximityConfig",
-    "CurriculumConfig",
+    "UncertaintyConfig",
     "compute_shard_indices",
 ]

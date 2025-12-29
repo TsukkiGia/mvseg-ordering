@@ -17,9 +17,10 @@ import pandas as pd
 from .dataset.wbc_multiple_perms import WBCDataset
 from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
-from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig
+from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, UncertaintyConfig
 from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
+from .dataset.tyche_augs import TycheAugs
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROMPT_CONFIG_DIR = SCRIPT_DIR / "prompt_generator_configs"
@@ -99,8 +100,6 @@ def load_ordering_config(
     permutations = cfg.get("permutations")
     if cfg_type == "mse_proximity":
         permutations = None  # ignored for mse_proximity
-    elif permutations is None:
-        raise ValueError("ordering_config must specify 'permutations'")
     else:
         permutations = int(permutations)
 
@@ -122,6 +121,25 @@ def load_ordering_config(
                 mode=mode,
                 alternate_start=alternate_start,
                 name=name,
+        )
+    if cfg_type == "uncertainty":
+        metric = cfg.get("metric", "pairwise_dice")
+        k = int(cfg.get("k", 3))
+        runs = cfg.get("runs")
+        runs = None if runs is None else int(runs)
+        reverse = bool(cfg.get("reverse", False))
+        tyche_seed = cfg.get("tyche_seed", seed)
+        tyche_sampler = TycheAugs(seed=tyche_seed)
+        return UncertaintyConfig(
+            seed=seed,
+            metric=metric,
+            k=k,
+            tyche_sampler=tyche_sampler,
+            reverse=reverse,
+            runs=runs,
+            shard_id=shard_id,
+            shard_count=shard_count,
+            name=name,
         )
 
     raise ValueError(f"Unknown ordering config type: {cfg_type}")
@@ -301,8 +319,7 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
             shard_count=setup.shards,
             )
 
-        if len(ordering_config.permutation_indices) < 1:
-            continue
+        # TODO: Skip empty shards
         shard_dir = setup.script_dir / f"Shard_{shard_id}"
         shard_dirs.append(shard_dir)
         proc = mp.Process(

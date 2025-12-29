@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scribbleprompt.analysis.plot import show_points
 from typing import Union, Dict
-from .ordering import OrderingConfig, RandomConfig, CurriculumConfig
+from .ordering import OrderingConfig, RandomConfig, UncertaintyConfig
 DatasetType = Union[WBCDataset, MegaMedicalDataset]
 DEFAULT_EVAL_STEP = 5
 
@@ -74,9 +74,9 @@ class MVSegOrderingExperiment():
         self.results_dir.mkdir(exist_ok=True)
         self.should_visualize = should_visualize
 
-        if isinstance(self.ordering_config, CurriculumConfig):
+        if isinstance(self.ordering_config, UncertaintyConfig):
             if self.ordering_config.tyche_sampler is None:
-                raise RuntimeError("CurriculumConfig requires a TycheAugs sampler, but none was provided.")
+                raise RuntimeError("UncertaintyConfig requires a TycheAugs sampler, but none was provided.")
 
         if eval_fraction is not None:
             if not (0 < eval_fraction <= 1):
@@ -121,6 +121,39 @@ class MVSegOrderingExperiment():
                     "Evaluation split consumed all available support samples. "
                     "Reduce eval_fraction or provide a larger dataset."
                 )
+
+        # Handle adaptive uncertainty ordering separately (select next based on context).
+        if isinstance(self.ordering_config, UncertaintyConfig):
+            (
+                all_iterations,
+                all_images,
+                all_eval_iterations,
+                all_eval_images,
+            ) = self._run_uncertainty_permutations(
+                support_indices=support_indices,
+                eval_indices=eval_indices,
+            )
+            self._write_aggregate_results(
+                frames=all_iterations,
+                output_path=self.results_dir / "support_images_iterations.csv",
+            )
+
+            self._write_aggregate_results(
+                frames=all_images,
+                output_path=self.results_dir / "support_images_summary.csv",
+            )
+
+            if all_eval_iterations:
+                self._write_aggregate_results(
+                    frames=all_eval_iterations,
+                    output_path=self.results_dir / "eval_iterations.csv",
+                )
+            if all_eval_images:
+                self._write_aggregate_results(
+                    frames=all_eval_images,
+                    output_path=self.results_dir / "eval_image_summary.csv",
+                )
+            return
 
         orderings = self.ordering_config.get_orderings(
             support_dataset=self.support_dataset,
@@ -443,10 +476,150 @@ class MVSegOrderingExperiment():
             iterations_needed = self.prompt_iterations
         return score_value, iterations_needed, yhat
 
-    def _get_curriculum_config(self) -> CurriculumConfig:
-        if not isinstance(self.ordering_config, CurriculumConfig):
+    def _get_curriculum_config(self) -> UncertaintyConfig:
+        if not isinstance(self.ordering_config, UncertaintyConfig):
             raise RuntimeError("Curriculum configuration is not set.")
         return self.ordering_config
+
+    def _run_uncertainty_permutations(
+        self,
+        support_indices: Sequence[int],
+        eval_indices: Sequence[int],
+    ):
+        """
+        Adaptive ordering: select next image based on uncertainty scores that use the current context.
+        """
+        if not isinstance(self.ordering_config, UncertaintyConfig):
+            raise RuntimeError("UncertaintyConfig not set for adaptive ordering.")
+
+        all_iterations = []
+        all_images = []
+        all_eval_iterations = []
+        all_eval_images = []
+
+        start_indices = self.ordering_config.get_start_positions(support_indices)
+        total_runs = len(start_indices)
+        for run_idx, start_index in enumerate(start_indices):
+            print(f"[uncertainty] Run {run_idx+1}/{total_runs} start_index={start_index}")
+            perm_gen_seed = self.seed + run_idx
+            seed_folder_dir = self.results_dir / f"Perm_Seed_{start_index}"
+            seed_folder_dir.mkdir(exist_ok=True)
+
+            remaining = list(support_indices)
+            # Deterministic start
+            if start_index not in remaining:
+                raise ValueError(f"Start index {start_index} not in support_indices.")
+            ordering_sequence: list[int] = []
+            context_images = None
+            context_labels = None
+            rows = []
+            image_summary_rows = []
+
+            rng = np.random.default_rng(perm_gen_seed)
+            current_index = start_index
+
+            while remaining:
+                remaining.remove(current_index)
+                image, label = self.support_dataset.get_item_by_data_index(current_index)
+                image = image.to(self.device)
+                label = label.to(self.device)
+                ordering_sequence.append(current_index)
+                context_size = 0 if context_images is None else len(context_images[0])
+
+                # Initial prediction
+                yhat = self.model.predict(image[None], context_images, context_labels, return_logits=True).to(self.device)
+                score = dice_score((yhat > 0).float(), label[None, ...])
+                initial_dice = float(score.item())
+
+                self._append_iteration_record(
+                    rows=rows,
+                    perm_gen_seed=perm_gen_seed,
+                    ordering_index=start_index,
+                    image_index=len(ordering_sequence) - 1,
+                    image_id=current_index,
+                    iteration=-1,
+                    score=initial_dice,
+                    pos_clicks=0,
+                    neg_clicks=0,
+                    context_size=context_size,
+                )
+
+                if initial_dice >= self.dice_cutoff:
+                    final_dice = initial_dice
+                    iterations_used = 0
+                else:
+                    final_dice, iterations_used, yhat = self._run_prompt_loop(
+                        image=image,
+                        label=label,
+                        image_index=len(ordering_sequence) - 1,
+                        image_id=current_index,
+                        context_images=context_images,
+                        context_labels=context_labels,
+                        yhat=yhat,
+                        rows=rows,
+                        perm_gen_seed=perm_gen_seed,
+                        ordering_index=start_index,
+                        seed_folder_dir=seed_folder_dir,
+                    )
+
+                self._append_image_summary_record(
+                    image_summary_rows=image_summary_rows,
+                    perm_gen_seed=perm_gen_seed,
+                    ordering_index=start_index,
+                    image_index=len(ordering_sequence) - 1,
+                    image_id=current_index,
+                    initial_dice=initial_dice,
+                    final_dice=final_dice,
+                    iterations_used=iterations_used,
+                    reached_cutoff=final_dice >= self.dice_cutoff,
+                    context_size=context_size,
+                )
+
+                # Commit to context
+                context_images, context_labels = self._update_context(
+                    context_images=context_images,
+                    context_labels=context_labels,
+                    image=image,
+                    label=label,
+                    prediction=yhat,
+                )
+
+                # Select next based on uncertainty
+                if remaining:
+                    current_index = self.ordering_config.select_index_by_uncertainty(
+                        candidate_indices=remaining,
+                        support_dataset=self.support_dataset,
+                        model=self.model,
+                        device=self.device,
+                        context_images=context_images,
+                        context_labels=context_labels,
+                    )
+
+            per_iteration_records = pd.DataFrame.from_records(rows)
+            per_image_records = pd.DataFrame.from_records(image_summary_rows)
+            per_iteration_records.to_csv(seed_folder_dir / "per_iteration_records.csv", index=False)
+            per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
+            all_iterations.append(per_iteration_records)
+            all_images.append(per_image_records)
+
+            if self.eval_fraction is not None and eval_indices:
+                eval_iteration_df, eval_image_df = self._evaluate_heldout_over_context(
+                    eval_indices=eval_indices,
+                    perm_gen_seed=perm_gen_seed,
+                    permutation_index=start_index,
+                    seed_folder_dir=seed_folder_dir,
+                    full_context_images=context_images,
+                    full_context_labels=context_labels,
+                    context_steps=self.eval_checkpoints,
+                )
+                eval_dir = seed_folder_dir / "eval"
+                eval_dir.mkdir(exist_ok=True)
+                eval_iteration_df.to_csv(eval_dir / "eval_iteration_records.csv", index=False)
+                eval_image_df.to_csv(eval_dir / "eval_image_records.csv", index=False)
+                all_eval_iterations.append(eval_iteration_df)
+                all_eval_images.append(eval_image_df)
+
+        return all_iterations, all_images, all_eval_iterations, all_eval_images
 
     @torch.inference_mode()
     def _run_seq_common(
@@ -481,6 +654,17 @@ class MVSegOrderingExperiment():
             score = dice_score((yhat > 0).float(), label[None, ...])
             initial_dice = float(score.item())
             context_size = 0 if context_images is None else len(context_images[0])
+
+            if self.should_visualize:
+                self._visualize_data(
+                    image=image,
+                    label=label,
+                    prediction=yhat,
+                    annotations={},
+                    seed_folder_dir=seed_folder_dir,
+                    image_index=index,
+                    iteration=-1,
+                )
 
             self._append_iteration_record(
                 rows=rows,
