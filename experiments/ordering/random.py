@@ -18,6 +18,8 @@ class RandomConfig(NonAdaptiveOrderingConfig):
         shard_count: Optional[int] = None,
         name: Optional[str] = None,
     ) -> None:
+        # permutation indices represents the identifier of the random permutation
+        # used to generate shuffling seeds
         super().__init__(seed=seed, name=name)
         if shard_id is not None and shard_count is not None:
             self.permutation_indices = compute_shard_indices(permutations, shard_id, shard_count)

@@ -17,7 +17,7 @@ import pandas as pd
 from .dataset.wbc_multiple_perms import WBCDataset
 from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
-from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, UncertaintyConfig, AdaptiveOrderingConfig, NonAdaptiveOrderingConfig
+from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, UncertaintyConfig, AdaptiveOrderingConfig, NonAdaptiveOrderingConfig, compute_shard_indices
 from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
 from .dataset.tyche_augs import TycheAugs
@@ -308,6 +308,7 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
 
     shard_dirs: list[Path] = []
     processes: list[mp.Process] = []
+    total_indices = len(support_dataset.get_data_indices())
     for shard_id in range(setup.shards):
         ordering_config = load_ordering_config(
             config_path=setup.ordering_config_path,
@@ -316,7 +317,15 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
             shard_count=setup.shards,
             )
 
-        # TODO: Skip empty shards
+        # Skip empty shards for non-adaptive configs (random/MSE) based on dataset size.
+        if isinstance(ordering_config, RandomConfig):
+            shard_slice = compute_shard_indices(len(ordering_config.permutation_indices), shard_id, setup.shards)
+            if not shard_slice:
+                continue
+        elif isinstance(ordering_config, MSEProximityConfig) or isinstance(ordering_config, UncertaintyConfig):
+            shard_slice = compute_shard_indices(total_indices, shard_id, setup.shards)
+            if not shard_slice:
+                continue
         shard_dir = setup.script_dir / f"Shard_{shard_id}"
         shard_dirs.append(shard_dir)
         proc = mp.Process(

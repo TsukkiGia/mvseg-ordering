@@ -38,7 +38,8 @@ class MSEProximityConfig(NonAdaptiveOrderingConfig):
         super().__init__(seed=seed, name=name)
         self.shard_id = shard_id
         self.shard_count = shard_count
-        # Populated in get_orderings based on dataset size.
+        # Populated in get_orderings based on dataset size. Represents the index of the image that starts
+        # the deterministic ordering
         self.permutation_indices: list[int] = []
 
         self.mode = mode.lower()
@@ -128,4 +129,4 @@ class MSEProximityConfig(NonAdaptiveOrderingConfig):
 
     def get_ordering_seeds(self) -> Sequence[int]:
         """Seeds tied to each permutation label."""
-        return [self.seed + idx for idx in self.permutation_indices]
+        return self.permutation_indices

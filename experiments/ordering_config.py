@@ -10,6 +10,8 @@ from .ordering import (
     OrderingConfig,
     RandomConfig,
     compute_shard_indices,
+    AdaptiveOrderingConfig,
+    NonAdaptiveOrderingConfig
 )
 
 __all__ = [
@@ -18,4 +20,6 @@ __all__ = [
     "MSEProximityConfig",
     "UncertaintyConfig",
     "compute_shard_indices",
+    "AdaptiveOrderingConfig",
+    "NonAdaptiveOrderingConfig"
 ]
