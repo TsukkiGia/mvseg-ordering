@@ -287,7 +287,7 @@ class MVSegOrderingExperiment():
         initial_dice: float,
         final_dice: float,
         dice_at_goal: float,
-        iterations_to_goal: int,
+        iterations_used: int,
         reached_cutoff: bool,
         context_size: int
     ) -> None:
@@ -301,7 +301,7 @@ class MVSegOrderingExperiment():
             "initial_dice": initial_dice,
             "final_dice": final_dice,
             "dice_at_goal": dice_at_goal,
-            "iterations_to_goal": iterations_to_goal,
+            "iterations_used": iterations_used,
             "reached_cutoff": reached_cutoff,
             "commit_type": "ground_truth" if self.commit_ground_truth else "prediction",
             "protocol": self.interaction_protocol,
@@ -748,7 +748,7 @@ class MVSegOrderingExperiment():
                 initial_dice=initial_dice,
                 final_dice=final_dice,
                 dice_at_goal=dice_at_goal,
-                iterations_to_goal=iterations_used,
+                iterations_used=iterations_used,
                 reached_cutoff=dice_at_goal >= self.dice_cutoff,
                 context_size=context_size,
             )
