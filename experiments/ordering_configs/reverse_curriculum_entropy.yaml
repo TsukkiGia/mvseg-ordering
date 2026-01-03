@@ -1,0 +1,5 @@
+type: uncertainty
+name: reverse_curriculum_entropy
+metric: binary_entropy
+k: 3
+reverse: true

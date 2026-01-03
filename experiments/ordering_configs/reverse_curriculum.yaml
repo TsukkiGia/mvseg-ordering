@@ -1,0 +1,5 @@
+type: uncertainty
+name: reverse_curriculum
+metric: pairwise_dice
+k: 3
+reverse: true
