@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
+from .task_explorer import FAMILY_ROOTS, iter_family_task_dirs
+
 
 @dataclass(frozen=True)
 class AblationConfig:
@@ -86,29 +88,9 @@ def iter_ablation_records(
     include_families: Optional[List[str]] = None,
     procedure: Optional[str] = None,
 ) -> Iterable[Dict[str, float | str]]:
+    # maps tasks to ablations
     dataset_configs: Dict[str, List[AblationConfig]] = {
     }
-
-    # Dynamic families discovered from experiments/scripts
-    FAMILY_ROOTS: Dict[str, str] = {
-        "experiment_acdc": "ACDC",
-        "experiment_btcv": "BTCV",
-        "experiment_buid": "BUID",
-        "experiment_hipxray": "HipXRay",
-        "experiment_pandental": "PanDental",
-        "experiment_scd": "SCD",
-        "experiment_scr": "SCR",
-        "experiment_spineweb": "SpineWeb",
-        "experiment_stare": "STARE",
-        "experiment_t1mix": "T1mix",
-        "experiment_wbc": "WBC",
-        "experiment_total_segmentator": "TotalSegmentator"
-    }
-
-    dynamic_roots = list(FAMILY_ROOTS.keys())
-    if include_families:
-        allow = {k for k, v in FAMILY_ROOTS.items() if v in include_families or k in include_families}
-        dynamic_roots = [r for r in dynamic_roots if r in allow]
 
     dynamic_ablation_defs = [
         ("Pred 0.90", "red", "commit_pred_90"),
@@ -117,25 +99,24 @@ def iter_ablation_records(
         ("Label 0.97", "purple", "commit_label_97"),
     ]
 
-    scripts_root = Path("experiments/scripts") / procedure if procedure else Path("experiments/scripts")
     # for each family, get the stats for a given measure across all ablations
-    for root_name in dynamic_roots:
-        root_path = repo_root / scripts_root / root_name
-        if not root_path.exists():
-            continue
-        family = FAMILY_ROOTS.get(root_name, root_name)
-        for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
-            configs: List[AblationConfig] = []
-            missing = False
-            for ablation_name, color, commit_dir in dynamic_ablation_defs:
-                base_dir = scripts_root / root_name / task_dir.name / commit_dir / "B"
-                csv_path = repo_root / base_dir / measure_config.file_name
-                if not csv_path.exists():
-                    missing = True
-                    break
-                configs.append(AblationConfig(ablation_name, color, base_dir))
-            if not missing and configs:
-                dataset_configs[f"{family} — {task_dir.name}"] = configs
+    for family, task_dir, _root_name in iter_family_task_dirs(
+        repo_root,
+        include_families=include_families,
+        procedure=procedure,
+    ):
+        configs: List[AblationConfig] = []
+        missing = False
+        task_rel = task_dir.relative_to(repo_root)
+        for ablation_name, color, commit_dir in dynamic_ablation_defs:
+            base_dir = task_rel / commit_dir / "B"
+            csv_path = repo_root / base_dir / measure_config.file_name
+            if not csv_path.exists():
+                missing = True
+                break
+            configs.append(AblationConfig(ablation_name, color, base_dir))
+        if not missing and configs:
+            dataset_configs[f"{family} — {task_dir.name}"] = configs
 
     metric_column = measure_config.metric_columns[metric_name]
 
@@ -154,16 +135,9 @@ def iter_ablation_records(
             support_csv = repo_root / config.base_dir / "subset_support_images_summary.csv"
             if support_csv.exists():
                 s = pd.read_csv(support_csv)
-                if "reached_cutoff" in s.columns and len(s) > 0:
-                    reached = s["reached_cutoff"].astype(str).str.lower().isin(["true", "1", "t", "yes"]).astype(float)
-                    if "subset_index" in s.columns:
-                        per_subset = reached.groupby(s["subset_index"]).mean()
-                        if len(per_subset) > 0:
-                            hit_frac = float(per_subset.median())
-                        else:
-                            hit_frac = float(reached.mean())
-                    else:
-                        hit_frac = float(reached.mean())
+                reached = s["reached_cutoff"].astype(str).str.lower().isin(["true", "1", "t", "yes"]).astype(float)
+                per_subset = reached.groupby(s["subset_index"]).mean()
+                hit_frac = float(per_subset.median())
 
             yield {
                 "dataset": dataset,
@@ -443,9 +417,7 @@ def main() -> None:
 
     repo_root = Path(__file__).resolve().parents[2]
     if args.split_by_family or args.family:
-        families = args.family if args.family else [
-            "ACDC","BTCV","BUID","HipXRay","PanDental","SCD","SCR","SpineWeb","STARE","T1mix","WBC","TotalSegmentator"
-        ]
+        families = args.family if args.family else sorted(set(FAMILY_ROOTS.values()))
         collected: Dict[str, List[Dict[str, float | str]]] = {}
         for fam in families:
             recs = list(

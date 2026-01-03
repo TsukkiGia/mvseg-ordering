@@ -30,28 +30,13 @@ import numpy as np
 import pandas as pd
 
 from .results_plot import compute_ctx_perm, summarise_ctx
+from .task_explorer import FAMILY_ROOTS, iter_family_task_dirs
 
 
 DEFAULT_BASELINE_K = 1
 BOOTSTRAP_SAMPLES = 2000
 BOOTSTRAP_ALPHA = 0.05
 _BOOTSTRAP_RNG = np.random.default_rng(0)
-
-
-FAMILY_ROOTS: Dict[str, str] = {
-    "experiment_acdc": "ACDC",
-    "experiment_btcv": "BTCV",
-    "experiment_buid": "BUID",
-    "experiment_hipxray": "HipXRay",
-    "experiment_pandental": "PanDental",
-    "experiment_scd": "SCD",
-    "experiment_scr": "SCR",
-    "experiment_spineweb": "SpineWeb",
-    "experiment_stare": "STARE",
-    "experiment_t1mix": "T1mix",
-    "experiment_wbc": "WBC",
-    "experiment_total_segmentator": "TotalSegmentator",
-}
 
 VARIANT_COMMITS = [
     ("commit_pred_90", "Pred 0.90"),
@@ -69,29 +54,16 @@ def _iter_script_eval_csvs(
     procedure: Optional[str] = None,
 ) -> Iterable[Tuple[str, Path, str, str]]:
     """Yield (task_label, eval_csv_path, family, commit_dir) discovered under experiments/scripts."""
-    scripts_root = repo_root / "experiments" / "scripts"
-    if procedure:
-        scripts_root = scripts_root / procedure
-
-    if include_families:
-        allow = {
-            root for root, fam in FAMILY_ROOTS.items()
-            if fam in include_families or root in include_families
-        }
-    else:
-        allow = set(FAMILY_ROOTS.keys())
-
-    for root_name in sorted(allow):
-        family = FAMILY_ROOTS[root_name]
-        root_path = scripts_root / root_name
-        if not root_path.exists():
-            continue
-        for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
-            task_label = f"{family} — {task_dir.name}"
-            for commit_dir in DEFAULT_COMMIT_DIRS:
-                eval_csv = task_dir / commit_dir / "A" / "results" / "eval_image_summary.csv"
-                if eval_csv.exists():
-                    yield task_label, eval_csv, family, commit_dir
+    for family, task_dir, _root_name in iter_family_task_dirs(
+        repo_root,
+        include_families=include_families,
+        procedure=procedure,
+    ):
+        task_label = f"{family} — {task_dir.name}"
+        for commit_dir in DEFAULT_COMMIT_DIRS:
+            eval_csv = task_dir / commit_dir / "A" / "results" / "eval_image_summary.csv"
+            if eval_csv.exists():
+                yield task_label, eval_csv, family, commit_dir
 
 
 def _make_task_item(
@@ -147,24 +119,26 @@ def _compute_task_iqr_rel(
     metric: str,
     eps: float = 1e-8,
 ) -> TaskCtxIQRRel:
+
     # Collapse per-image metrics down to (context_size, permutation_index) means.
     ctx_perm = compute_ctx_perm(df, metric, reducer="mean")
+
     # For each context size k aggregate across permutations (q1, median, q3, ...).
     stats = summarise_ctx(ctx_perm, metric)
     stats = stats.sort_values("context_size").reset_index(drop=True)
     stats["iqr"] = stats["q3"] - stats["q1"]
 
-    if metric == "iterations_used":
-        # For iterations_used, we use the absolute IQR as the variability measure.
-        stats["iqr_rel"] = stats["iqr"]
-    else:
-        # Use k=DEFAULT_BASELINE_K (usually k=1) as the normalisation anchor.
-        base_row = stats[stats["context_size"] == DEFAULT_BASELINE_K]
-        if base_row.empty:
-            raise ValueError("Empty baseline")
-        base_iqr = float(base_row["iqr"].iloc[0])
-        denom = max(base_iqr, eps)
-        stats["iqr_rel"] = stats["iqr"] / denom
+    # if metric == "iterations_used":
+    #     # For iterations_used, we use the absolute IQR as the variability measure.
+    #     stats["iqr_rel"] = stats["iqr"]
+    # else:
+    # Use k=DEFAULT_BASELINE_K (usually k=1) as the normalisation anchor.
+    base_row = stats[stats["context_size"] == DEFAULT_BASELINE_K]
+    if base_row.empty:
+        raise ValueError("Empty baseline")
+    base_iqr = float(base_row["iqr"].iloc[0])
+    denom = max(base_iqr, eps)
+    stats["iqr_rel"] = stats["iqr"] / denom
 
     # These metadata columns are constant per CSV, so we just read the first row.
     commit_type = df.get("commit_type").iloc[0] if "commit_type" in df.columns and len(df) else None
