@@ -116,10 +116,13 @@ class UncertaintyConfig(AdaptiveOrderingConfig):
         device: torch.device,
         context_images: Optional[torch.Tensor],
         context_labels: Optional[torch.Tensor],
-    ) -> int:
+        return_details: bool = False,
+    ) -> int | tuple[int, list[tuple[int, float]], Sequence[tuple[Any, Dict[str, Any]]]]:
         """
         Given a set of candidate data indices and the current context, select
         the index with lowest or highest uncertainty according to the curriculum.
+
+        If return_details is True, returns (selected_idx, scored, tyche_augs).
         """
         if not candidate_indices:
             raise ValueError("candidate_indices must be a non-empty sequence.")
@@ -148,4 +151,6 @@ class UncertaintyConfig(AdaptiveOrderingConfig):
             # Standard curriculum: pick the image you're unsure about.
             selected_idx, _ = max(scored, key=lambda x: x[1])
 
+        if return_details:
+            return selected_idx, scored, tyche_augs
         return selected_idx

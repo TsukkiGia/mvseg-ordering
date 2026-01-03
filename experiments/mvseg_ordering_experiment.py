@@ -310,6 +310,43 @@ class MVSegOrderingExperiment():
             "context_size": context_size
         })
 
+    def _append_uncertainty_perturbation_records(
+        self,
+        rows,
+        perm_gen_seed: int,
+        ordering_index: int,
+        image_index: int,
+        image_id: Any,
+        context_size: int,
+        tyche_augs,
+        candidate_score: Optional[float] = None,
+        selected: bool = False,
+    ) -> None:
+        metric = self.ordering_config.metric if isinstance(self.ordering_config, UncertaintyConfig) else None
+        k = self.ordering_config.k if isinstance(self.ordering_config, UncertaintyConfig) else None
+        for aug_index, (aug_type, params) in enumerate(tyche_augs):
+            row = {
+                "policy_name": self.ordering_config.name,
+                "experiment_seed": self.seed,
+                "perm_gen_seed": perm_gen_seed,
+                "permutation_index": ordering_index,
+                "image_index": image_index,
+                "image_id": image_id,
+                "context_size": context_size,
+                "ordering_metric": metric,
+                "mc_samples": k,
+                "candidate_score": candidate_score,
+                "selected": selected,
+                "aug_index": aug_index,
+                "aug_type": getattr(aug_type, "name", str(aug_type)),
+            }
+            for key, value in params.items():
+                if isinstance(value, (int, float, np.integer, np.floating)):
+                    row[f"param_{key}"] = float(value)
+                else:
+                    row[f"param_{key}"] = value
+            rows.append(row)
+
     def _visualize_data(
         self,
         image: torch.Tensor,
@@ -512,6 +549,7 @@ class MVSegOrderingExperiment():
         all_images = []
         all_eval_iterations = []
         all_eval_images = []
+        all_uncertainty_perturbations = []
 
         start_indices = self.ordering_config.get_start_positions(support_indices)
         total_runs = len(start_indices)
@@ -530,6 +568,7 @@ class MVSegOrderingExperiment():
             context_labels = None
             rows = []
             image_summary_rows = []
+            perturbation_rows = []
 
             rng = np.random.default_rng(perm_gen_seed)
             current_index = start_index
@@ -616,14 +655,30 @@ class MVSegOrderingExperiment():
 
                 # Select next based on uncertainty
                 if remaining:
-                    current_index = self.ordering_config.select_index_by_uncertainty(
+                    selected_idx, scored, tyche_augs = self.ordering_config.select_index_by_uncertainty(
                         candidate_indices=remaining,
                         support_dataset=self.support_dataset,
                         model=self.model,
                         device=self.device,
                         context_images=context_images,
                         context_labels=context_labels,
+                        return_details=True,
                     )
+                    next_image_index = len(ordering_sequence)
+                    next_context_size = 0 if context_images is None else len(context_images[0])
+                    for candidate_id, score in scored:
+                        self._append_uncertainty_perturbation_records(
+                            rows=perturbation_rows,
+                            perm_gen_seed=perm_gen_seed,
+                            ordering_index=start_index,
+                            image_index=next_image_index,
+                            image_id=candidate_id,
+                            context_size=next_context_size,
+                            tyche_augs=tyche_augs,
+                            candidate_score=score,
+                            selected=(candidate_id == selected_idx),
+                        )
+                    current_index = selected_idx
 
             per_iteration_records = pd.DataFrame.from_records(rows)
             per_image_records = pd.DataFrame.from_records(image_summary_rows)
@@ -631,6 +686,10 @@ class MVSegOrderingExperiment():
             per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
             all_iterations.append(per_iteration_records)
             all_images.append(per_image_records)
+            if perturbation_rows:
+                perturbation_records = pd.DataFrame.from_records(perturbation_rows)
+                perturbation_records.to_csv(seed_folder_dir / "uncertainty_perturbations.csv", index=False)
+                all_uncertainty_perturbations.append(perturbation_records)
 
             if self.eval_fraction is not None and eval_indices:
                 eval_iteration_df, eval_image_df = self._evaluate_heldout_over_context(
@@ -649,6 +708,11 @@ class MVSegOrderingExperiment():
                 all_eval_iterations.append(eval_iteration_df)
                 all_eval_images.append(eval_image_df)
 
+        if all_uncertainty_perturbations:
+            self._write_aggregate_results(
+                frames=all_uncertainty_perturbations,
+                output_path=self.results_dir / "uncertainty_perturbations.csv",
+            )
         return all_iterations, all_images, all_eval_iterations, all_eval_images
 
     @torch.inference_mode()
