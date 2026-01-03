@@ -69,10 +69,12 @@ def expand_megamedical_entry(
 ) -> tuple[list[dict[str, Any]], MultiBinarySegment2D | None]:
     merged = {**defaults, **exp}
     if not merged.get("use_mega_dataset", False):
+        print(f"[expand] Non-MegaMedical entry: name={exp.get('name','exp')}")
         return [exp], mega_loader
 
     # Explicit target already provided – nothing to expand.
     if merged.get("mega_target_index") is not None:
+        print(f"[expand] Explicit MegaMedical target provided: idx={merged.get('mega_target_index')}")
         return [exp], mega_loader
 
     dataset_name = merged.get("mega_dataset_name")
@@ -154,6 +156,7 @@ def expand_megamedical_entry(
         base_name = exp.get("name", "exp")
         cfg["name"] = f"{base_name}_{task_component}_{idx}"
         expanded.append(cfg)
+    print(f"[expand] Expanded MegaMedical entry into {len(expanded)} configs (dataset={dataset_name}, split={dataset_split})")
     return expanded, loader
 
 
@@ -325,6 +328,7 @@ def main() -> None:
                     if tag_suffix:
                         tag += f":{tag_suffix}"
                     setups.append((tag, setup))
+                    print(f"[queue] {tag} -> {setup.script_dir}")
 
     for tag, setup in setups:
         # Enriched dry-run summary for quick verification
