@@ -8,7 +8,6 @@ defaults:
   permutations: 100
   use_mega_dataset: true
   mega_dataset_name: BUID
-  mega_dataset_size: 100
   no_visualize: true
   device: cuda
   shards: 4
@@ -52,23 +51,27 @@ experiments:
     dice_cutoff: 0.9
     commit_ground_truth: true
     script_dir: experiments/scripts/random/experiment_buid/commit_label_90
+    mega_dataset_size: 100
     plan: [B]
 
   - name: label_97
     dice_cutoff: 0.97
     commit_ground_truth: true
     script_dir: experiments/scripts/random/experiment_buid/commit_label_97
+    mega_dataset_size: 100
     plan: [B]
 
   - name: pred_90
     dice_cutoff: 0.9
     commit_ground_truth: false
     script_dir: experiments/scripts/random/experiment_buid/commit_pred_90
+    mega_dataset_size: 100
     plan: [B]
 
   - name: pred_97
     dice_cutoff: 0.97
     commit_ground_truth: false
     script_dir: experiments/scripts/random/experiment_buid/commit_pred_97
+    mega_dataset_size: 100
     plan: [B]
 
