@@ -108,8 +108,8 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for policy in sorted(df["policy_name"].unique()):
         sub = df[df["policy_name"] == policy]
-        x = sub["initial_dice_diff"].to_numpy(dtype=float)
-        y = sub["iterations_used_diff"].to_numpy(dtype=float)
+        x = sub.groupby("task_id")["initial_dice_diff"].mean().to_numpy(dtype=float)
+        y = sub.groupby("task_id")["iterations_used_diff"].mean().to_numpy(dtype=float)
         if x.size == 0:
             continue
         plt.figure(figsize=(6, 5))

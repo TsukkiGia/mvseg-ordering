@@ -138,7 +138,7 @@ def infer_task_id(path: Path, depth: int = 3) -> str:
 def compute_task_means(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
     """Return rows: task_name, policy_name, metric, task_mean (mean over subset start means)."""
     rows = []
-    subset_col = "subset_index" if "subset_index" in df.columns else None
+    subset_col = "subset_index"
     for policy in sorted(df["policy_name"].unique()):
         df_pol = df[df["policy_name"] == policy]
         for metric in metrics:
