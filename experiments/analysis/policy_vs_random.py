@@ -7,6 +7,12 @@ Usage:
       --csv "experiments/scripts/random_v_MSE/experiment_buid/BUID_Benign_Ultrasound_0_label0_midslice_idx29/abl/*/B/subset_support_images_summary.csv" \
       --metrics initial_dice final_dice iterations_used dice_at_goal \
       --baseline random \
+
+  # Random vs Uncertainty (example dataset)
+  python -m experiments.analysis.policy_vs_random \
+      --csv "experiments/scripts/random_vs_uncertainty/experiment_buid/*/abl/*/B/subset_support_images_summary.csv" \
+      --metrics initial_dice final_dice iterations_used \
+      --baseline random
 """
 from __future__ import annotations
 
@@ -18,8 +24,6 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import re
-import os
 
 
 def _to_bool_series(s: pd.Series) -> pd.Series:

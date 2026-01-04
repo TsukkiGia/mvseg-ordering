@@ -1,5 +1,29 @@
 #!/usr/bin/env python3
-"""Dataset-level scatter plots of policy diffs vs random per (task, subset, start)."""
+"""Dataset-level scatter plots of policy diffs vs random per (task, subset, start).
+
+Sample CLI:
+  # Scan a dataset family under experiments/scripts/<procedure>/<dataset_root>/*
+  python -m experiments.analysis.policy_dataset_scatter \\
+    --dataset BTCV \\
+    --procedure random_vs_uncertainty
+
+  # Custom ablation folder name (instead of "abl")
+  python -m experiments.analysis.policy_dataset_scatter \\
+    --dataset BUID \\
+    --procedure random_vs_uncertainty \\
+    --ablation abl_entropy
+
+  # Plot from explicit diffs.csv globs (skips dataset scan)
+  python -m experiments.analysis.policy_dataset_scatter \\
+    --dataset BTCV \\
+    --diffs "experiments/scripts/random_vs_uncertainty/experiment_btcv/*/abl/diffs.csv"
+
+Notes:
+  diffs.csv is typically one row per (task, subset, start_image_id). To avoid
+  overweighting subsets with more starts, we aggregate as:
+    (task_id, subset_index) -> mean over starts
+    (task_id) -> mean over subsets
+"""
 from __future__ import annotations
 
 import argparse
@@ -13,7 +37,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .task_explorer import FAMILY_ROOTS
+from .task_explorer import FAMILY_ROOTS, iter_family_task_dirs
 
 
 def _slug(text: str) -> str:
@@ -35,41 +59,48 @@ def _default_outdir(dataset: str, procedure: str) -> Path:
     return repo_root / "experiments" / "scripts" / procedure / root_name / "figures"
 
 
-def _infer_task_id(path: Path, depth: int = 3) -> str:
+def _infer_task_id(path: Path, depth: int = 3, *, ablation: str = "abl") -> str:
     parts = path.parts
-    if "abl" in parts:
-        i = parts.index("abl")
+    if ablation in parts:
+        i = parts.index(ablation)
         return "/".join(parts[max(0, i - depth):i])
     return str(path.parent)
 
 
-def build_diff_paths(dataset: str, procedure: str) -> list[Path]:
+def build_diff_paths(dataset: str, procedure: str, *, ablation: str = "abl") -> list[Path]:
     repo_root = Path(__file__).resolve().parents[2]
-    scripts_root = repo_root / "experiments" / "scripts" / procedure
     paths: list[Path] = []
-    for root_name, family in FAMILY_ROOTS.items():
-        if root_name != dataset and family != dataset:
-            continue
-        root_path = scripts_root / root_name
-        if not root_path.exists():
-            continue
-        for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
-            paths.append(task_dir / "abl" / "diffs.csv")
+    for _, task_dir, _ in iter_family_task_dirs(
+        repo_root,
+        procedure=procedure,
+        include_families=[dataset],
+    ):
+        paths.append(task_dir / ablation / "diffs.csv")
     return paths
 
 
-def load_diffs(paths: Iterable[Path]) -> pd.DataFrame:
+def load_diffs(paths: Iterable[Path], *, ablation: str = "abl") -> pd.DataFrame:
     frames = []
     for path in paths:
         if not path.exists():
             continue
         df = pd.read_csv(path)
-        df["task_id"] = _infer_task_id(path)
+        df["task_id"] = _infer_task_id(path, ablation=ablation)
         df["__source__"] = str(path)
         frames.append(df)
     if not frames:
         raise FileNotFoundError("No diffs.csv files found.")
     return pd.concat(frames, ignore_index=True)
+
+def _task_points(sub: pd.DataFrame, *, x_col: str, y_col: str) -> tuple[np.ndarray, np.ndarray]:
+    """Return one (x,y) point per task_id with subset-aware aggregation when possible."""
+    per_subset = sub.groupby(["task_id", "subset_index"])[[x_col, y_col]].mean()
+    per_task = per_subset.groupby("task_id")[[x_col, y_col]].mean()
+    
+    return (
+        per_task[x_col].to_numpy(dtype=float),
+        per_task[y_col].to_numpy(dtype=float),
+    )
 
 
 def main() -> None:
@@ -88,6 +119,12 @@ def main() -> None:
         help="Optional diffs.csv glob(s). If provided, dataset scan is skipped.",
     )
     ap.add_argument(
+        "--ablation",
+        type=str,
+        default="abl",
+        help="Ablation folder name under each task directory (default: abl).",
+    )
+    ap.add_argument(
         "--outdir",
         type=Path,
         default=None,
@@ -100,8 +137,8 @@ def main() -> None:
     if args.diffs:
         paths = [Path(p) for pat in args.diffs for p in glob.glob(pat)]
     else:
-        paths = build_diff_paths(args.dataset, args.procedure)
-    df = load_diffs(paths)
+        paths = build_diff_paths(args.dataset, args.procedure, ablation=args.ablation)
+    df = load_diffs(paths, ablation=args.ablation)
 
     required = {"policy_name", "initial_dice_diff", "iterations_used_diff"}
     missing = required - set(df.columns)
@@ -112,8 +149,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for policy in sorted(df["policy_name"].unique()):
         sub = df[df["policy_name"] == policy]
-        x = sub.groupby("task_id")["initial_dice_diff"].mean().to_numpy(dtype=float)
-        y = sub.groupby("task_id")["iterations_used_diff"].mean().to_numpy(dtype=float)
+        x, y = _task_points(sub, x_col="initial_dice_diff", y_col="iterations_used_diff")
         if x.size == 0:
             continue
         plt.figure(figsize=(6, 5))

@@ -2,7 +2,7 @@
 """Policy vs position curves (Plan B): metric vs image_index aggregated across tasks.
 
 This script loads per-policy Plan B summaries from:
-  experiments/scripts/<procedure>/<experiment_*>/<task>/abl/<policy>/B/subset_support_images_summary.csv
+  experiments/scripts/<procedure>/<experiment_*>/<task>/<ablation>/<policy>/B/subset_support_images_summary.csv
 
 Aggregation (by default, avoids overweighting policies with more permutations):
   (task, policy, subset_index, image_index) -> mean over permutations
@@ -10,6 +10,26 @@ Aggregation (by default, avoids overweighting policies with more permutations):
   (policy, image_index) -> mean over tasks + 95% CI across tasks
 
 Optionally, plot diffs relative to a baseline policy (policy - baseline) computed per-task.
+
+Sample CLI:
+  # Raw per-position curves (all discovered policies)
+  python -m experiments.analysis.policy_position_curves \\
+    --dataset BUID \\
+    --procedure random_vs_uncertainty \\
+    --metric final_dice
+
+  # Diffs vs baseline (e.g., random)
+  python -m experiments.analysis.policy_position_curves \\
+    --dataset BTCV \\
+    --procedure random_vs_uncertainty \\
+    --metric iterations_used \\
+    --baseline random
+
+  # Custom ablation folder name (instead of "abl")
+  python -m experiments.analysis.policy_position_curves \\
+    --dataset ACDC \\
+    --procedure random_vs_uncertainty \\
+    --ablation abl_entropy
 """
 
 from __future__ import annotations
@@ -53,14 +73,15 @@ def iter_planb_policy_csvs(
     repo_root: Path,
     procedure: str,
     dataset: str,
+    ablation: str = "abl",
 ) -> Iterable[tuple[str, str, str, Path]]:
     """Yield (family, task_name, policy_dir_name, csv_path)."""
-    for family, task_dir, _root_name in iter_family_task_dirs(
+    for family, task_dir, _ in iter_family_task_dirs(
         repo_root,
         procedure=procedure,
         include_families=[dataset],
     ):
-        abl_dir = task_dir / "abl"
+        abl_dir = task_dir / ablation
         if not abl_dir.exists():
             continue
         for policy_dir in sorted(p for p in abl_dir.iterdir() if p.is_dir()):
@@ -75,12 +96,14 @@ def load_planb_summaries(
     procedure: str,
     dataset: str,
     policies: Optional[list[str]] = None,
+    ablation: str = "abl",
 ) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for family, task_name, policy_dir, csv_path in iter_planb_policy_csvs(
         repo_root=repo_root,
         procedure=procedure,
         dataset=dataset,
+        ablation=ablation,
     ):
         if policies and policy_dir not in policies:
             continue
@@ -220,6 +243,12 @@ def main() -> None:
         help="Optional policy folder names to include (default: all discovered).",
     )
     ap.add_argument(
+        "--ablation",
+        type=str,
+        default="abl",
+        help="Ablation folder name under each task directory (default: abl).",
+    )
+    ap.add_argument(
         "--baseline",
         type=str,
         default=None,
@@ -241,6 +270,7 @@ def main() -> None:
         procedure=args.procedure,
         dataset=args.dataset,
         policies=args.policies,
+        ablation=args.ablation,
     )
 
     curves = compute_task_curves(df, metric=args.metric)
