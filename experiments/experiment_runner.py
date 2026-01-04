@@ -97,13 +97,8 @@ def load_ordering_config(
     name = str(cfg.get("name") or "").strip()
     if not name:
         raise ValueError("ordering_config must specify non-empty 'name'")
-    permutations = cfg.get("permutations")
-    if cfg_type == "mse_proximity":
-        permutations = None  # ignored for mse_proximity
-    else:
-        permutations = int(permutations)
-
     if cfg_type == "random":
+        permutations = int(cfg.get("permutations"))
         return RandomConfig(
             seed=seed,
             permutations=permutations,
@@ -319,8 +314,7 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
 
         # Skip empty shards for non-adaptive configs (random/MSE) based on dataset size.
         if isinstance(ordering_config, RandomConfig):
-            shard_slice = compute_shard_indices(len(ordering_config.permutation_indices), shard_id, setup.shards)
-            if not shard_slice:
+            if not ordering_config.permutation_indices:
                 continue
         elif isinstance(ordering_config, MSEProximityConfig) or isinstance(ordering_config, UncertaintyConfig):
             shard_slice = compute_shard_indices(total_indices, shard_id, setup.shards)

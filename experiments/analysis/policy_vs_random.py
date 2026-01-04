@@ -54,7 +54,6 @@ def policy_vs_random(
     metrics: Iterable[str],
     baseline: str = "random",
 ) -> pd.DataFrame:
-    """Compute paired bootstrap CI of (policy - random) per metric."""
     if "policy_name" not in df.columns:
         raise ValueError("CSV must contain 'policy_name' column.")
     if "permutation_index" not in df.columns:

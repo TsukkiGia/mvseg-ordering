@@ -321,22 +321,25 @@ class MVSegOrderingExperiment():
         tyche_augs,
         candidate_score: Optional[float] = None,
         selected: bool = False,
+        selection_step: Optional[int] = None,
     ) -> None:
         metric = self.ordering_config.metric if isinstance(self.ordering_config, UncertaintyConfig) else None
         k = self.ordering_config.k if isinstance(self.ordering_config, UncertaintyConfig) else None
+        logged_image_index = image_index if selected else None
         for aug_index, (aug_type, params) in enumerate(tyche_augs):
             row = {
                 "policy_name": self.ordering_config.name,
                 "experiment_seed": self.seed,
                 "perm_gen_seed": perm_gen_seed,
                 "permutation_index": ordering_index,
-                "image_index": image_index,
+                "image_index": logged_image_index,
                 "image_id": image_id,
                 "context_size": context_size,
                 "ordering_metric": metric,
                 "mc_samples": k,
                 "candidate_score": candidate_score,
                 "selected": selected,
+                "selection_step": selection_step,
                 "aug_index": aug_index,
                 "aug_type": getattr(aug_type, "name", str(aug_type)),
             }
@@ -551,12 +554,17 @@ class MVSegOrderingExperiment():
         all_eval_images = []
         all_uncertainty_perturbations = []
 
+        index_lookup = {idx: pos for pos, idx in enumerate(support_indices)}
         start_indices = self.ordering_config.get_start_positions(support_indices)
         total_runs = len(start_indices)
         for run_idx, start_index in enumerate(start_indices):
+            start_pos = index_lookup.get(start_index)
+            if start_pos is None:
+                raise ValueError(f"Start index {start_index} not in support_indices.")
             print(f"[uncertainty] Run {run_idx+1}/{total_runs} start_index={start_index}")
-            perm_gen_seed = self.seed + run_idx
-            seed_folder_dir = self.results_dir / f"Perm_Seed_{start_index}"
+            run_label = start_pos
+            perm_gen_seed = self.seed + start_pos
+            seed_folder_dir = self.results_dir / f"Perm_Seed_{run_label}"
             seed_folder_dir.mkdir(exist_ok=True)
 
             remaining = list(support_indices)
@@ -589,7 +597,7 @@ class MVSegOrderingExperiment():
                 self._append_iteration_record(
                     rows=rows,
                     perm_gen_seed=perm_gen_seed,
-                    ordering_index=start_index,
+                    ordering_index=run_label,
                     image_index=len(ordering_sequence) - 1,
                     image_id=current_index,
                     iteration=-1,
@@ -612,7 +620,7 @@ class MVSegOrderingExperiment():
                         yhat=yhat,
                         rows=rows,
                         perm_gen_seed=perm_gen_seed,
-                        ordering_index=start_index,
+                        ordering_index=run_label,
                         seed_folder_dir=seed_folder_dir,
                     )
                 else:
@@ -626,14 +634,14 @@ class MVSegOrderingExperiment():
                         yhat=yhat,
                         rows=rows,
                         perm_gen_seed=perm_gen_seed,
-                        ordering_index=start_index,
+                        ordering_index=run_label,
                         seed_folder_dir=seed_folder_dir,
                     )
 
                 self._append_image_summary_record(
                     image_summary_rows=image_summary_rows,
                     perm_gen_seed=perm_gen_seed,
-                    ordering_index=start_index,
+                    ordering_index=run_label,
                     image_index=len(ordering_sequence) - 1,
                     image_id=current_index,
                     initial_dice=initial_dice,
@@ -670,13 +678,14 @@ class MVSegOrderingExperiment():
                         self._append_uncertainty_perturbation_records(
                             rows=perturbation_rows,
                             perm_gen_seed=perm_gen_seed,
-                            ordering_index=start_index,
+                            ordering_index=run_label,
                             image_index=next_image_index,
                             image_id=candidate_id,
                             context_size=next_context_size,
                             tyche_augs=tyche_augs,
                             candidate_score=score,
                             selected=(candidate_id == selected_idx),
+                            selection_step=next_image_index,
                         )
                     current_index = selected_idx
 
@@ -695,7 +704,7 @@ class MVSegOrderingExperiment():
                 eval_iteration_df, eval_image_df = self._evaluate_heldout_over_context(
                     eval_indices=eval_indices,
                     perm_gen_seed=perm_gen_seed,
-                    permutation_index=start_index,
+                    permutation_index=run_label,
                     seed_folder_dir=seed_folder_dir,
                     full_context_images=context_images,
                     full_context_labels=context_labels,
