@@ -17,6 +17,8 @@ Usage examples:
 from __future__ import annotations
 
 import argparse
+import json
+import functools
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,47 @@ def _ordering_meta(path: Path) -> tuple[str, str]:
         raise ValueError(f"Invalid ordering_config at {path}: missing non-empty 'name'")
     return policy_type, name
 
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+@functools.lru_cache(maxsize=1)
+def _load_pretrained_baselines() -> dict[str, float]:
+    path = _repo_root() / "experiments" / "baselines.json"
+    if not path.exists():
+        raise FileNotFoundError(f"baselines.json not found at {path}")
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict) or not data:
+        raise ValueError(f"Invalid baselines.json at {path}: expected non-empty object")
+    out: dict[str, float] = {}
+    for key, value in data.items():
+        out[str(key)] = float(value)
+    return out
+
+
+
+def _resolve_dice_cutoff(cfg: dict[str, Any]) -> float:
+    """Return dice_cutoff, optionally overriding from experiments/baselines.json."""
+    if bool(cfg.get("pretrained_model_score_goal", False)):
+        family = cfg.get("mega_dataset_name", None)
+        if not family:
+            raise ValueError(
+                "pretrained_model_score_goal=true but could not infer dataset family "
+                "(expected mega_task like 'BUID/...', task_name like 'BUID/...', or mega_dataset_name)."
+            )
+        baselines = _load_pretrained_baselines()
+        if family not in baselines:
+            raise KeyError(
+                f"pretrained_model_score_goal=true but family '{family}' not found in experiments/baselines.json "
+                f"(available: {sorted(baselines.keys())})"
+            )
+        return float(baselines[family])
+
+    dice_cutoff = cfg.get("dice_cutoff")
+    if dice_cutoff is None:
+        raise ValueError("Missing dice_cutoff in defaults or experiment entry")
+    return float(dice_cutoff)
 
 
 def _validate_megamedical_cfg(cfg: dict[str, Any]) -> None:
@@ -223,7 +266,7 @@ def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> Exp
         prompt_config_key=cfg.get("prompt_config_key"),
         prompt_iterations=int(cfg.get("prompt_iterations")),
         commit_ground_truth=bool(cfg.get("commit_ground_truth", False)),
-        dice_cutoff=float(cfg.get("dice_cutoff")),
+        dice_cutoff=_resolve_dice_cutoff(cfg),
         script_dir=script_dir,
         should_visualize=not bool(cfg.get("no_visualize", False)),
         seed=int(cfg.get("experiment_seed", 23)),
