@@ -25,7 +25,7 @@ defaults:
   # Runtime
   no_visualize: true
   device: cuda
-  shards: 4
+  shards: 8
   experiment_seed: 23
 
 experiments:
@@ -33,6 +33,45 @@ experiments:
     dice_cutoff: 0.9
     commit_ground_truth: false
     script_dir: experiments/scripts/random_v_MSE/experiment_acdc/abl
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_min.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_max.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
+
+  - name: pred_90_random_vs_mse_15p
+    dice_cutoff: 0.9
+    prompt_iterations: 15
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_MSE/experiment_acdc/abl15p
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_min.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_max.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
+
+  - name: pred_90_random_vs_mse_10p
+    dice_cutoff: 0.9
+    prompt_iterations: 10
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_MSE/experiment_acdc/abl10p
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_min.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_max.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
+  
+  - name: pred_90_random_vs_mse_5p
+    dice_cutoff: 0.9
+    prompt_iterations: 5
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_MSE/experiment_acdc/abl5p
     plan: [B]
     policies:
       - ordering_config_path: experiments/ordering_configs/random_default.yaml

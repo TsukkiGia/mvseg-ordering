@@ -25,7 +25,7 @@ defaults:
   # Runtime
   no_visualize: true
   device: cuda
-  shards: 4
+  shards: 8
   experiment_seed: 23
 
 experiments:
