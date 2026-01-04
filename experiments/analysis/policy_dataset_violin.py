@@ -33,6 +33,21 @@ def _slug(text: str) -> str:
     return text.strip("_")
 
 
+def _resolve_dataset_root(dataset: str) -> str:
+    for root_name, family in FAMILY_ROOTS.items():
+        if dataset == root_name or dataset == family:
+            return root_name
+    return dataset
+
+
+def _default_outdir(dataset: Optional[str], procedure: str) -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    if dataset:
+        root_name = _resolve_dataset_root(dataset)
+        return repo_root / "experiments" / "scripts" / procedure / root_name / "figures"
+    return repo_root / "figures"
+
+
 def _infer_task_name(path: Path) -> str:
     # Expect .../<task_dir>/abl/diffs.csv
     parts = path.parts
@@ -68,6 +83,26 @@ def load_diffs(patterns: Iterable[str]) -> pd.DataFrame:
         paths.extend(Path(p) for p in matches)
     if not paths:
         raise FileNotFoundError(f"No diffs.csv matched patterns: {patterns}")
+    frames = []
+    for p in paths:
+        df = pd.read_csv(p)
+        if "task_name" not in df.columns:
+            df["task_name"] = _infer_task_name(p)
+        df["__source__"] = str(p)
+        df["task_id"] = infer_task_id(p, depth=3)
+        frames.append(df)
+    return pd.concat(frames, ignore_index=True)
+
+
+def load_summaries(patterns: Iterable[str]) -> pd.DataFrame:
+    paths: list[Path] = []
+    for pat in patterns:
+        matches = glob.glob(pat)
+        if not matches and Path(pat).exists():
+            matches = [pat]
+        paths.extend(Path(p) for p in matches)
+    if not paths:
+        raise FileNotFoundError(f"No summary CSVs matched patterns: {patterns}")
     frames = []
     for p in paths:
         df = pd.read_csv(p)
@@ -124,8 +159,27 @@ def build_diff_paths_from_datasets(
         root_path = scripts_root / root_name
         if not root_path.exists():
             continue
+        print(root_path)
         for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
             paths.append(task_dir / "abl" / "diffs.csv")
+    return paths
+
+def build_summary_paths_from_datasets(
+    datasets: Iterable[str],
+    procedure: str,
+) -> list[Path]:
+    repo_root = Path(__file__).resolve().parents[2]
+    scripts_root = repo_root / "experiments" / "scripts" / procedure
+    paths: list[Path] = []
+    targets = set(datasets)
+    for root_name, family in FAMILY_ROOTS.items():
+        if root_name not in targets and family not in targets:
+            continue
+        root_path = scripts_root / root_name
+        if not root_path.exists():
+            continue
+        for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
+            paths.append(task_dir / "abl" / "*" / "B" / "subset_support_images_summary.csv")
     return paths
 
 def infer_task_id(path: Path, depth: int = 3) -> str:
@@ -214,8 +268,8 @@ def main() -> None:
     ap.add_argument(
         "--outdir",
         type=Path,
-        default=Path("figures"),
-        help="Output directory for plots (default: figures/).",
+        default=None,
+        help="Output directory for plots (default: experiments/scripts/<procedure>/<dataset>/figures).",
     )
     ap.add_argument(
         "--baseline",
@@ -224,40 +278,66 @@ def main() -> None:
         help="Baseline policy_name (used if generating diffs).",
     )
     ap.add_argument(
+        "--raw",
+        action="store_true",
+        help="Plot raw metrics from subset_support_images_summary.csv instead of diffs.",
+    )
+    ap.add_argument(
         "--generate-diffs",
         action="store_true",
         help="If set, generate missing diffs.csv files from subset_support_images_summary.csv using policy_vs_random.",
     )
     args = ap.parse_args()
+    if args.outdir is None:
+        args.outdir = _default_outdir(args.dataset, args.procedure)
 
     patterns: list[str] = []
     if args.diffs:
         patterns.extend(args.diffs)
     if args.dataset:
-        patterns.extend([str(p) for p in build_diff_paths_from_datasets([args.dataset], args.procedure)])
+        if args.raw:
+            patterns.extend([str(p) for p in build_summary_paths_from_datasets([args.dataset], args.procedure)])
+        else:
+            patterns.extend([str(p) for p in build_diff_paths_from_datasets([args.dataset], args.procedure)])
     if not patterns:
         raise SystemExit("Provide --diffs or --dataset")
 
-    if args.dataset:
-        expected = build_diff_paths_from_datasets([args.dataset], args.procedure)
-        if args.generate_diffs:
-            diffs_paths = maybe_generate_diffs(expected, args.metrics, args.baseline)
-        else:
-            diffs_paths = [p for p in expected if p.exists()]
+    dataset_label = args.dataset or "custom"
 
-    df = load_diffs([str(p) for p in diffs_paths])
-    
-    if args.metrics is None:
-        metrics = [c for c in df.columns if c.endswith("_diff")]
+    if args.raw:
+        df = load_summaries(patterns)
+        df = _compute_start_image(df)
+        if args.metrics is None:
+            metrics = ["initial_dice", "final_dice", "iterations_used"]
+        else:
+            metrics = [m[:-5] if m.endswith("_diff") else m for m in args.metrics]
+        metrics = [m for m in metrics if m in df.columns]
+        if not metrics:
+            raise SystemExit("No valid metric columns found in summary CSVs.")
     else:
-        metrics = list(args.metrics)
+        diffs_paths: list[Path] = []
+        if args.dataset:
+            expected = build_diff_paths_from_datasets([args.dataset], args.procedure)
+            if args.generate_diffs:
+                diffs_paths = maybe_generate_diffs(expected, args.metrics, args.baseline)
+            else:
+                diffs_paths = [p for p in expected if p.exists()]
+        else:
+            diffs_paths = [Path(p) for p in patterns]
+
+        df = load_diffs([str(p) for p in diffs_paths])
+
+        if args.metrics is None:
+            metrics = [c for c in df.columns if c.endswith("_diff")]
+        else:
+            metrics = list(args.metrics)
 
     task_means = compute_task_means(df, metrics)
     if task_means.empty:
         print("No task means computed.")
         return
     print(task_means)
-    plot_task_violin(task_means, args.outdir, args.dataset)
+    plot_task_violin(task_means, args.outdir, dataset_label)
 
 
 if __name__ == "__main__":

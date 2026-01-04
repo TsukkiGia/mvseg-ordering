@@ -22,13 +22,17 @@ def _slug(text: str) -> str:
     return text.strip("_")
 
 
-def _infer_task_name(path: Path) -> str:
-    parts = path.parts
-    if "abl" in parts:
-        idx = parts.index("abl")
-        if idx >= 1:
-            return parts[idx - 1]
-    return path.parent.name
+def _resolve_dataset_root(dataset: str) -> str:
+    for root_name, family in FAMILY_ROOTS.items():
+        if dataset == root_name or dataset == family:
+            return root_name
+    return dataset
+
+
+def _default_outdir(dataset: str, procedure: str) -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    root_name = _resolve_dataset_root(dataset)
+    return repo_root / "experiments" / "scripts" / procedure / root_name / "figures"
 
 
 def _infer_task_id(path: Path, depth: int = 3) -> str:
@@ -60,8 +64,6 @@ def load_diffs(paths: Iterable[Path]) -> pd.DataFrame:
         if not path.exists():
             continue
         df = pd.read_csv(path)
-        if "task_name" not in df.columns:
-            df["task_name"] = _infer_task_name(path)
         df["task_id"] = _infer_task_id(path)
         df["__source__"] = str(path)
         frames.append(df)
@@ -88,10 +90,12 @@ def main() -> None:
     ap.add_argument(
         "--outdir",
         type=Path,
-        default=Path("figures"),
-        help="Output directory for plots (default: figures/).",
+        default=None,
+        help="Output directory for plots (default: experiments/scripts/<procedure>/<dataset>/figures).",
     )
     args = ap.parse_args()
+    if args.outdir is None:
+        args.outdir = _default_outdir(args.dataset, args.procedure)
 
     if args.diffs:
         paths = [Path(p) for pat in args.diffs for p in glob.glob(pat)]

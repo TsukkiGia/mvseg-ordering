@@ -10,23 +10,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-
-FAMILY_ROOTS: Dict[str, str] = {
-    "experiment_acdc": "ACDC",
-    "experiment_btcv": "BTCV",
-    "experiment_buid": "BUID",
-    "experiment_hipxray": "HipXRay",
-    "experiment_pandental": "PanDental",
-    "experiment_scd": "SCD",
-    "experiment_scr": "SCR",
-    "experiment_spineweb": "SpineWeb",
-    "experiment_stare": "STARE",
-    "experiment_t1mix": "T1mix",
-    "experiment_wbc": "WBC",
-    "experiment_total_segmentator": "TotalSegmentator",
-}
-
-_PERM_STRIDE = 10000
+from .task_explorer import FAMILY_ROOTS, iter_family_task_dirs
 
 
 def _resolve_eval_iterations(path: Path) -> Optional[Path]:
@@ -70,43 +54,27 @@ def _iter_commit_eval_dfs(
     procedure: Optional[str] = None,
     required_ks: Optional[Set[int]] = None,
 ) -> Iterable[Tuple[str, str, pd.DataFrame]]:
-    scripts_root = repo_root / "experiments" / "scripts"
-    if procedure:
-        scripts_root = scripts_root / procedure
-
-    allow: Optional[set[str]] = None
-    if include_families:
-        allow = {
-            root
-            for root, fam in FAMILY_ROOTS.items()
-            if fam in include_families or root in include_families
-        }
-
     dataset_idx = 0
-    for root_name, family in FAMILY_ROOTS.items():
-        if allow is not None and root_name not in allow:
+    for family, task_dir, _root_name in iter_family_task_dirs(
+        repo_root,
+        include_families=include_families,
+        procedure=procedure,
+    ):
+        csv_path = _resolve_eval_iterations(task_dir / commit_dir)
+        if csv_path is None:
             continue
-        root_path = scripts_root / root_name
-        if not root_path.exists():
-            continue
-        for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
-            csv_path = _resolve_eval_iterations(task_dir / commit_dir)
-            if csv_path is None:
+        df = _read_eval_iterations(csv_path).copy()
+        if required_ks:
+            ks_present = {int(k) for k in df["context_size"].unique()}
+            if not required_ks.issubset(ks_present):
+                missing = sorted(required_ks - ks_present)
+                print(
+                    f"[info] Skipping {family}/{task_dir.name} for commit {commit_dir} "
+                    f"missing required ks {missing}"
+                )
                 continue
-            df = _read_eval_iterations(csv_path).copy()
-            if required_ks:
-                ks_present = {int(k) for k in df["context_size"].unique()}
-                if not required_ks.issubset(ks_present):
-                    missing = sorted(required_ks - ks_present)
-                    print(
-                        f"[info] Skipping {family}/{task_dir.name} for commit {commit_dir} "
-                        f"missing required ks {missing}"
-                    )
-                    continue
-            offset = dataset_idx * _PERM_STRIDE
-            df["permutation_index"] = df["permutation_index"].astype(int) + offset
-            dataset_idx += 1
-            yield family, task_dir.name, df
+        dataset_idx += 1
+        yield family, task_dir.name, df
 
 
 def _gather_family_eval_iterations(
