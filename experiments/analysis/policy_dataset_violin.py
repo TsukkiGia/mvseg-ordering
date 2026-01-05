@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dataset-level policy vs random analysis: per-task mean diffs and violins.
+"""Dataset-level policy vs random analysis: per-task mean diffs in a violin.
 
 For each task, subset, and start, we assume a diff=policy−random is available
 in a diffs.csv (from policy_vs_random). We aggregate:
@@ -18,17 +18,9 @@ Sample CLI:
     --raw
 
   # Diff violins from existing diffs.csv files
-  python -m experiments.analysis.policy_dataset_violin \\
-    --dataset BTCV \\
-    --procedure random_vs_uncertainty
+  python -m experiments.analysis.policy_dataset_violin --dataset BTCV --procedure random_v_MSE --ablation pretrained_baseline
 
-  # Generate missing diffs.csv on the fly (baseline defaults to "random")
-  python -m experiments.analysis.policy_dataset_violin \\
-    --dataset BTCV \\
-    --procedure random_vs_uncertainty \\
-    --generate-diffs
-
-  # Custom ablation folder name (instead of "abl")
+  # Custom ablation folder name (instead of "pretrained_baseline")
   python -m experiments.analysis.policy_dataset_violin \\
     --dataset ACDC \\
     --procedure random_vs_uncertainty \\
@@ -47,9 +39,7 @@ import numpy as np
 import pandas as pd
 import re
 import os
-from .task_explorer import FAMILY_ROOTS
 from .policy_vs_random import policy_vs_random as compute_policy_diffs
-from .policy_vs_random import _load_csvs as load_summary_csvs
 from .task_explorer import FAMILY_ROOTS, iter_family_task_dirs
 
 
@@ -66,28 +56,16 @@ def _resolve_dataset_root(dataset: str) -> str:
     return dataset
 
 
-def _default_outdir(dataset: Optional[str], procedure: str) -> Path:
+def _default_outdir(dataset: Optional[str], procedure: str, *,  ablation: str) -> Path:
     repo_root = Path(__file__).resolve().parents[2]
-    if dataset:
-        root_name = _resolve_dataset_root(dataset)
-        return repo_root / "experiments" / "scripts" / procedure / root_name / "figures"
-    return repo_root / "figures"
-
-
-def _infer_task_name(path: Path, *, ablation: str = "abl") -> str:
-    # Expect .../<task_dir>/<ablation>/diffs.csv
-    parts = path.parts
-    if ablation in parts:
-        idx = parts.index(ablation)
-        if idx >= 1:
-            return parts[idx - 1]
-    return path.parent.name
+    root_name = _resolve_dataset_root(dataset)
+    return repo_root / "experiments" / "scripts" / procedure / root_name / "figures" / ablation
 
 
 def _compute_start_image(df: pd.DataFrame) -> pd.DataFrame:
     perm_keys = [
         "subset_index",
-        "task_name",
+        "task_id",
         "policy_name",
         "experiment_seed",
         "perm_gen_seed",
@@ -100,7 +78,7 @@ def _compute_start_image(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_diffs(patterns: Iterable[str], *, ablation: str = "abl") -> pd.DataFrame:
+def load_diffs(patterns: Iterable[str]) -> pd.DataFrame:
     paths: list[Path] = []
     for pat in patterns:
         matches = glob.glob(pat)
@@ -112,15 +90,11 @@ def load_diffs(patterns: Iterable[str], *, ablation: str = "abl") -> pd.DataFram
     frames = []
     for p in paths:
         df = pd.read_csv(p)
-        if "task_name" not in df.columns:
-            df["task_name"] = _infer_task_name(p, ablation=ablation)
-        df["__source__"] = str(p)
-        df["task_id"] = infer_task_id(p, depth=3, ablation=ablation)
         frames.append(df)
     return pd.concat(frames, ignore_index=True)
 
 
-def load_summaries(patterns: Iterable[str], *, ablation: str = "abl") -> pd.DataFrame:
+def load_summaries(patterns: Iterable[str]) -> pd.DataFrame:
     paths: list[Path] = []
     for pat in patterns:
         matches = glob.glob(pat)
@@ -132,50 +106,15 @@ def load_summaries(patterns: Iterable[str], *, ablation: str = "abl") -> pd.Data
     frames = []
     for p in paths:
         df = pd.read_csv(p)
-        if "task_name" not in df.columns:
-            df["task_name"] = _infer_task_name(p, ablation=ablation)
-        df["__source__"] = str(p)
-        df["task_id"] = infer_task_id(p, depth=3, ablation=ablation)
         frames.append(df)
     return pd.concat(frames, ignore_index=True)
-
-
-def maybe_generate_diffs(
-    diffs_paths: Iterable[Path],
-    metrics: Iterable[str],
-    baseline: str,
-) -> list[Path]:
-    """If a diffs.csv is missing, attempt to generate it from subset_support_images_summary.csv."""
-    if metrics:
-        base_metrics = [m[:-5] if m.endswith("_diff") else m for m in metrics]
-    else:
-        base_metrics = ["initial_dice", "final_dice", "iterations_used"]
-    generated: list[Path] = []
-    for diffs_path in diffs_paths:
-        if diffs_path.exists():
-            generated.append(diffs_path)
-            continue
-        abl_dir = diffs_path.parent
-        summary_glob = str(abl_dir / "*" / "B" / "subset_support_images_summary.csv")
-        df = load_summary_csvs(summary_glob)
-        if df is None:
-            continue
-        df = _compute_start_image(df)
-        # Compute diffs using helper
-        summary = compute_policy_diffs(df=df, metrics=base_metrics, baseline=baseline)
-        if summary.empty:
-            continue
-        abl_dir.mkdir(parents=True, exist_ok=True)
-        summary.to_csv(diffs_path, index=False)
-        generated.append(diffs_path)
-    return generated
 
 
 def build_diff_paths_from_datasets(
     datasets: Iterable[str],
     procedure: str,
     *,
-    ablation: str = "abl",
+    ablation: str = "pretrained_baseline",
 ) -> list[Path]:
     repo_root = Path(__file__).resolve().parents[2]
     scripts_root = repo_root / "experiments" / "scripts" / procedure
@@ -195,7 +134,7 @@ def build_summary_paths_from_datasets(
     datasets: Iterable[str],
     procedure: str,
     *,
-    ablation: str = "abl",
+    ablation: str = "pretrained_baseline",
 ) -> list[Path]:
     repo_root = Path(__file__).resolve().parents[2]
     paths: list[Path] = []
@@ -207,28 +146,34 @@ def build_summary_paths_from_datasets(
         paths.append(task_dir / ablation / "*" / "B" / "subset_support_images_summary.csv")
     return paths
 
-def infer_task_id(path: Path, depth: int = 3, *, ablation: str = "abl") -> str:
-    parts = path.parts
-    if ablation in parts:
-        i = parts.index(ablation)
-        return "/".join(parts[max(0, i - depth):i])
-    return str(path.parent)
-
 def compute_task_means(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
-    """Return rows: task_name, policy_name, metric, task_mean (mean over subset start means)."""
+    """Return rows: task_id, policy_name, metric, task_mean.
+
+    For each policy+metric:
+      - mean over starts within (task_id, subset_index)
+      - mean over subsets within task_id
+    """
     rows = []
     for policy in sorted(df["policy_name"].unique()):
         df_pol = df[df["policy_name"] == policy]
         for metric in metrics:
-            subset_means = df_pol.groupby(["task_id","subset_index"]).mean()
-            task_means = subset_means.groupby(["task_id"]).mean()
-            for task, val in task_means.dropna().items():
+            per_subset = (
+                df_pol.groupby(["task_id", "subset_index"], as_index=False)[metric]
+                .mean()
+                .rename(columns={metric: "subset_mean"})
+            )
+            per_task = (
+                per_subset.groupby("task_id", as_index=False)["subset_mean"]
+                .mean()
+                .rename(columns={"subset_mean": "task_mean"})
+            )
+            for _, r in per_task.iterrows():
                 rows.append(
                     {
-                        "task_name": task,
+                        "task_id": str(r["task_id"]),
                         "policy_name": policy,
                         "metric": metric,
-                        "task_mean": float(val),
+                        "task_mean": float(r["task_mean"]),
                     }
                 )
     return pd.DataFrame(rows)
@@ -266,14 +211,9 @@ def plot_task_violin(task_means: pd.DataFrame, out_dir: Path, dataset: str) -> N
 def main() -> None:
     ap = argparse.ArgumentParser(description="Dataset-level task violins for policy vs random diffs.")
     ap.add_argument(
-        "--diffs",
-        nargs="+",
-        required=False,
-        help="One or more diffs.csv paths or glob patterns (from policy_vs_random).",
-    )
-    ap.add_argument(
         "--dataset",
         default=None,
+        required=True,
         help="Dataset families (e.g., BUID, WBC) to scan under experiments/scripts/<procedure>/ for diffs.csv.",
     )
     ap.add_argument(
@@ -285,7 +225,7 @@ def main() -> None:
     ap.add_argument(
         "--ablation",
         type=str,
-        default="abl",
+        default="pretrained_baseline",
         help="Ablation folder name under each task directory (default: abl).",
     )
     ap.add_argument(
@@ -293,12 +233,6 @@ def main() -> None:
         nargs="+",
         default=None,
         help="Diff metric columns to analyze (default: all *_diff columns in the data).",
-    )
-    ap.add_argument(
-        "--outdir",
-        type=Path,
-        default=None,
-        help="Output directory for plots (default: experiments/scripts/<procedure>/<dataset>/figures).",
     )
     ap.add_argument(
         "--baseline",
@@ -311,30 +245,21 @@ def main() -> None:
         action="store_true",
         help="Plot raw metrics from subset_support_images_summary.csv instead of diffs.",
     )
-    ap.add_argument(
-        "--generate-diffs",
-        action="store_true",
-        help="If set, generate missing diffs.csv files from subset_support_images_summary.csv using policy_vs_random.",
-    )
     args = ap.parse_args()
-    if args.outdir is None:
-        args.outdir = _default_outdir(args.dataset, args.procedure)
+    outdir = _default_outdir(args.dataset, args.procedure, ablation=args.ablation)
 
     patterns: list[str] = []
-    if args.diffs:
-        patterns.extend(args.diffs)
-    if args.dataset:
-        if args.raw:
-            patterns.extend([str(p) for p in build_summary_paths_from_datasets([args.dataset], args.procedure, ablation=args.ablation)])
-        else:
-            patterns.extend([str(p) for p in build_diff_paths_from_datasets([args.dataset], args.procedure, ablation=args.ablation)])
+    if args.raw:
+        patterns.extend([str(p) for p in build_summary_paths_from_datasets([args.dataset], args.procedure, ablation=args.ablation)])
+    else:
+        patterns.extend([str(p) for p in build_diff_paths_from_datasets([args.dataset], args.procedure, ablation=args.ablation)])
     if not patterns:
-        raise SystemExit("Provide --diffs or --dataset")
+        raise SystemExit("Provide --dataset")
 
-    dataset_label = args.dataset or "custom"
+    dataset_label = args.dataset
 
     if args.raw:
-        df = load_summaries(patterns, ablation=args.ablation)
+        df = load_summaries(patterns)
         df = _compute_start_image(df)
         if args.metrics is None:
             metrics = ["initial_dice", "final_dice", "iterations_used"]
@@ -345,16 +270,9 @@ def main() -> None:
             raise SystemExit("No valid metric columns found in summary CSVs.")
     else:
         diffs_paths: list[Path] = []
-        if args.dataset:
-            expected = build_diff_paths_from_datasets([args.dataset], args.procedure, ablation=args.ablation)
-            if args.generate_diffs:
-                diffs_paths = maybe_generate_diffs(expected, args.metrics, args.baseline)
-            else:
-                diffs_paths = [p for p in expected if p.exists()]
-        else:
-            diffs_paths = [Path(p) for p in patterns]
-
-        df = load_diffs([str(p) for p in diffs_paths], ablation=args.ablation)
+        expected = build_diff_paths_from_datasets([args.dataset], args.procedure, ablation=args.ablation)
+        diffs_paths = [p for p in expected if p.exists()]
+        df = load_diffs([str(p) for p in diffs_paths])
 
         if args.metrics is None:
             metrics = [c for c in df.columns if c.endswith("_diff")]
@@ -365,8 +283,8 @@ def main() -> None:
     if task_means.empty:
         print("No task means computed.")
         return
-    print(task_means)
-    plot_task_violin(task_means, args.outdir, dataset_label)
+    
+    plot_task_violin(task_means, outdir, dataset_label)
 
 
 if __name__ == "__main__":

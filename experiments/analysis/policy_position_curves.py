@@ -13,10 +13,7 @@ Optionally, plot diffs relative to a baseline policy (policy - baseline) compute
 
 Sample CLI:
   # Raw per-position curves (all discovered policies)
-  python -m experiments.analysis.policy_position_curves \\
-    --dataset BUID \\
-    --procedure random_vs_uncertainty \\
-    --metric final_dice
+  python -m experiments.analysis.policy_position_curves --dataset BTCV --procedure random_v_MSE --metric iterations_used --baseline random --ablation pretrained_baseline
 
   # Diffs vs baseline (e.g., random)
   python -m experiments.analysis.policy_position_curves \\
@@ -25,7 +22,7 @@ Sample CLI:
     --metric iterations_used \\
     --baseline random
 
-  # Custom ablation folder name (instead of "abl")
+  # Custom ablation folder name (instead of "pretrained_baseline")
   python -m experiments.analysis.policy_position_curves \\
     --dataset ACDC \\
     --procedure random_vs_uncertainty \\
@@ -36,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from numpy.random import default_rng
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -55,6 +53,17 @@ def _t_ci95(mean: float, std: float, n: int) -> tuple[float, float]:
     return mean - t_mult * se, mean + t_mult * se
 
 
+def _bootstrap_ci(vals: np.ndarray, n_boot: int = 5000, seed: int = 0, alpha: float = 0.05) -> tuple[float, float]:
+    """Nonparametric bootstrap CI for the mean."""
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return float("nan"), float("nan")
+    rng = default_rng(seed)
+    samples = rng.choice(vals, size=(n_boot, vals.size), replace=True).mean(axis=1)
+    lo, hi = np.quantile(samples, [alpha / 2, 1 - alpha / 2])
+    return float(lo), float(hi)
+
+
 def _resolve_dataset_root(dataset: str) -> str:
     for root_name, family in FAMILY_ROOTS.items():
         if dataset == root_name or dataset == family:
@@ -62,10 +71,10 @@ def _resolve_dataset_root(dataset: str) -> str:
     return dataset
 
 
-def _default_outdir(dataset: str, procedure: str) -> Path:
+def _default_outdir(dataset: str, procedure: str, *, ablation:str) -> Path:
     repo_root = Path(__file__).resolve().parents[2]
     root_name = _resolve_dataset_root(dataset)
-    return repo_root / "experiments" / "scripts" / procedure / root_name / "figures"
+    return repo_root / "experiments" / "scripts" / procedure / root_name / "figures" / ablation
 
 
 def iter_planb_policy_csvs(
@@ -73,7 +82,7 @@ def iter_planb_policy_csvs(
     repo_root: Path,
     procedure: str,
     dataset: str,
-    ablation: str = "abl",
+    ablation: str = "pretrained_baseline",
 ) -> Iterable[tuple[str, str, str, Path]]:
     """Yield (family, task_name, policy_dir_name, csv_path)."""
     for family, task_dir, _ in iter_family_task_dirs(
@@ -95,8 +104,7 @@ def load_planb_summaries(
     repo_root: Path,
     procedure: str,
     dataset: str,
-    policies: Optional[list[str]] = None,
-    ablation: str = "abl",
+    ablation: str = "pretrained_baseline",
 ) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for family, task_name, policy_dir, csv_path in iter_planb_policy_csvs(
@@ -105,14 +113,9 @@ def load_planb_summaries(
         dataset=dataset,
         ablation=ablation,
     ):
-        if policies and policy_dir not in policies:
-            continue
         df = pd.read_csv(csv_path)
         if df.empty:
             continue
-        if "task_name" not in df.columns:
-            df = df.copy()
-            df["task_name"] = f"{family}/{task_name}"
         df["task_id"] = f"{family}/{task_name}"
         df["__policy_dir__"] = policy_dir
         df["__source__"] = str(csv_path)
@@ -135,11 +138,14 @@ def compute_task_curves(
     if missing:
         raise ValueError(f"Missing required columns: {sorted(missing)}")
 
+    # across permutations within a task's policy's subset
     per_subset = (
         df.groupby(["task_id", "policy_name", "subset_index", "image_index"], as_index=False)[metric]
         .mean()
         .rename(columns={metric: "subset_mean"})
     )
+
+    # across subsets
     per_task = (
         per_subset.groupby(["task_id", "policy_name", "image_index"], as_index=False)["subset_mean"]
         .mean()
@@ -148,8 +154,11 @@ def compute_task_curves(
     return per_task
 
 
-def summarise_across_tasks(curves: pd.DataFrame) -> pd.DataFrame:
-    """Return (policy_name, image_index) mean ± 95% CI over tasks."""
+def summarise_across_tasks(curves: pd.DataFrame, *, ci: str = "bootstrap", n_boot: int = 5000, seed: int = 0) -> pd.DataFrame:
+    """Return (policy_name, image_index) mean ± 95% CI over tasks.
+
+    ci: "bootstrap" (default) or "t"
+    """
     rows: list[dict[str, float | int | str]] = []
     for (policy, image_index), sub in curves.groupby(["policy_name", "image_index"]):
         vals = sub["task_mean"].to_numpy(dtype=float)
@@ -158,8 +167,11 @@ def summarise_across_tasks(curves: pd.DataFrame) -> pd.DataFrame:
         if n == 0:
             continue
         mean = float(np.mean(vals))
-        std = float(np.std(vals, ddof=1)) if n > 1 else float("nan")
-        lo, hi = _t_ci95(mean, std, n)
+        if ci == "t":
+            std = float(np.std(vals, ddof=1)) if n > 1 else float("nan")
+            lo, hi = _t_ci95(mean, std, n)
+        else:
+            lo, hi = _bootstrap_ci(vals, n_boot=n_boot, seed=seed)
         rows.append(
             {
                 "policy_name": str(policy),
@@ -237,15 +249,9 @@ def main() -> None:
         help="Metric column to plot (e.g., initial_dice, final_dice, iterations_used).",
     )
     ap.add_argument(
-        "--policies",
-        nargs="+",
-        default=None,
-        help="Optional policy folder names to include (default: all discovered).",
-    )
-    ap.add_argument(
         "--ablation",
         type=str,
-        default="abl",
+        default="pretrained_baseline",
         help="Ablation folder name under each task directory (default: abl).",
     )
     ap.add_argument(
@@ -254,22 +260,14 @@ def main() -> None:
         default=None,
         help="If set, plot policy - baseline diffs per position (baseline is policy_name, e.g., random).",
     )
-    ap.add_argument(
-        "--outdir",
-        type=Path,
-        default=None,
-        help="Output directory (default: experiments/scripts/<procedure>/<dataset>/figures).",
-    )
     args = ap.parse_args()
-    if args.outdir is None:
-        args.outdir = _default_outdir(args.dataset, args.procedure)
+    outdir = _default_outdir(args.dataset, args.procedure, ablation=args.ablation)
 
     repo_root = Path(__file__).resolve().parents[2]
     df = load_planb_summaries(
         repo_root=repo_root,
         procedure=args.procedure,
         dataset=args.dataset,
-        policies=args.policies,
         ablation=args.ablation,
     )
 
@@ -285,8 +283,8 @@ def main() -> None:
         stem = f"{args.dataset}_{args.metric}_by_image_index"
 
     summary = summarise_across_tasks(curves)
-    out_csv = args.outdir / f"{stem}.csv"
-    out_png = args.outdir / f"{stem}.png"
+    out_csv = outdir / f"{stem}.csv"
+    out_png = outdir / f"{stem}.png"
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     summary.to_csv(out_csv, index=False)
     plot_curves(summary, out_path=out_png, title=title, y_label=y_label)

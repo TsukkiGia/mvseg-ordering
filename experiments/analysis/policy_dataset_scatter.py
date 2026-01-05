@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
-"""Dataset-level scatter plots of policy diffs vs random per (task, subset, start).
+"""Dataset-level scatter plots of policy diffs vs random per task.
 
 Sample CLI:
   # Scan a dataset family under experiments/scripts/<procedure>/<dataset_root>/*
-  python -m experiments.analysis.policy_dataset_scatter \\
-    --dataset BTCV \\
-    --procedure random_vs_uncertainty
+  python -m experiments.analysis.policy_dataset_scatter  --dataset BTCV  --procedure random_vs_uncertainty  --ablation pretrained_baseline
 
-  # Custom ablation folder name (instead of "abl")
+  # Custom ablation folder name 
   python -m experiments.analysis.policy_dataset_scatter \\
     --dataset BUID \\
     --procedure random_vs_uncertainty \\
-    --ablation abl_entropy
-
-  # Plot from explicit diffs.csv globs (skips dataset scan)
-  python -m experiments.analysis.policy_dataset_scatter \\
-    --dataset BTCV \\
-    --diffs "experiments/scripts/random_vs_uncertainty/experiment_btcv/*/abl/diffs.csv"
+    --ablation pretrained_baseline
 
 Notes:
   diffs.csv is typically one row per (task, subset, start_image_id). To avoid
@@ -27,7 +20,6 @@ Notes:
 from __future__ import annotations
 
 import argparse
-import glob
 import os
 import re
 from pathlib import Path
@@ -53,21 +45,13 @@ def _resolve_dataset_root(dataset: str) -> str:
     return dataset
 
 
-def _default_outdir(dataset: str, procedure: str) -> Path:
+def _default_outdir(dataset: str, procedure: str, *, ablation: str) -> Path:
     repo_root = Path(__file__).resolve().parents[2]
     root_name = _resolve_dataset_root(dataset)
     return repo_root / "experiments" / "scripts" / procedure / root_name / "figures"
 
 
-def _infer_task_id(path: Path, depth: int = 3, *, ablation: str = "abl") -> str:
-    parts = path.parts
-    if ablation in parts:
-        i = parts.index(ablation)
-        return "/".join(parts[max(0, i - depth):i])
-    return str(path.parent)
-
-
-def build_diff_paths(dataset: str, procedure: str, *, ablation: str = "abl") -> list[Path]:
+def build_diff_paths(dataset: str, procedure: str, *, ablation: str = "pretrained_baseline") -> list[Path]:
     repo_root = Path(__file__).resolve().parents[2]
     paths: list[Path] = []
     for _, task_dir, _ in iter_family_task_dirs(
@@ -79,14 +63,12 @@ def build_diff_paths(dataset: str, procedure: str, *, ablation: str = "abl") -> 
     return paths
 
 
-def load_diffs(paths: Iterable[Path], *, ablation: str = "abl") -> pd.DataFrame:
+def load_diffs(paths: Iterable[Path]) -> pd.DataFrame:
     frames = []
     for path in paths:
         if not path.exists():
             continue
         df = pd.read_csv(path)
-        df["task_id"] = _infer_task_id(path, ablation=ablation)
-        df["__source__"] = str(path)
         frames.append(df)
     if not frames:
         raise FileNotFoundError("No diffs.csv files found.")
@@ -113,15 +95,9 @@ def main() -> None:
         help="Procedure folder under experiments/scripts/ (default: random_v_MSE).",
     )
     ap.add_argument(
-        "--diffs",
-        nargs="+",
-        default=None,
-        help="Optional diffs.csv glob(s). If provided, dataset scan is skipped.",
-    )
-    ap.add_argument(
         "--ablation",
         type=str,
-        default="abl",
+        default="pretrained_baseline",
         help="Ablation folder name under each task directory (default: abl).",
     )
     ap.add_argument(
@@ -132,13 +108,10 @@ def main() -> None:
     )
     args = ap.parse_args()
     if args.outdir is None:
-        args.outdir = _default_outdir(args.dataset, args.procedure)
+        args.outdir = _default_outdir(args.dataset, args.procedure, ablation=args.ablation)
 
-    if args.diffs:
-        paths = [Path(p) for pat in args.diffs for p in glob.glob(pat)]
-    else:
-        paths = build_diff_paths(args.dataset, args.procedure, ablation=args.ablation)
-    df = load_diffs(paths, ablation=args.ablation)
+    paths = build_diff_paths(args.dataset, args.procedure, ablation=args.ablation)
+    df = load_diffs(paths)
 
     required = {"policy_name", "initial_dice_diff", "iterations_used_diff"}
     missing = required - set(df.columns)
