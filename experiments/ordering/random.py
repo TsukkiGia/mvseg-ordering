@@ -33,10 +33,14 @@ class RandomConfig(NonAdaptiveOrderingConfig):
     ) -> list[list[int]]:
         support_indices = list(candidate_indices)
         orderings: list[list[int]] = []
+        n = len(support_indices)
         for permutation_index in self.permutation_indices:
+            permutation_index = int(permutation_index)
             perm_gen_seed = self.seed + permutation_index
             rng = np.random.default_rng(perm_gen_seed)
-            ordering = rng.permutation(support_indices).tolist()
+            start_idx = support_indices[permutation_index % n]
+            remaining = [idx for idx in support_indices if idx != start_idx]
+            ordering = [start_idx] + rng.permutation(remaining).tolist()
             orderings.append(ordering)
         return orderings
 
