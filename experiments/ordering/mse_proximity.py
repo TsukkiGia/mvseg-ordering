@@ -7,13 +7,12 @@ import torch
 
 from .base import NonAdaptiveOrderingConfig, compute_shard_indices
 
-#TODO: Change to do all images in the dataset, instead of using permutations
 class MSEProximityConfig(NonAdaptiveOrderingConfig):
     """
     Builds orderings by chaining images with nearest/farthest MSE neighbors.
 
     For each ordering:
-    1) Choose a random start index (seeded).
+    1) Choose a deterministic start index (one per candidate image).
     2) Iteratively pick the next image from remaining candidates based on MSE
        to the last selected image (min, max, or alternating).
     """
@@ -86,7 +85,6 @@ class MSEProximityConfig(NonAdaptiveOrderingConfig):
         self.permutation_indices = perm_indices
 
         # Pre-load images once to avoid repeated dataset access.
-        # TODO: to(self.device)
         image_cache: dict[int, torch.Tensor] = {
             idx: support_dataset.get_item_by_data_index(idx)[0].to(torch.float32)
             for idx in support_indices

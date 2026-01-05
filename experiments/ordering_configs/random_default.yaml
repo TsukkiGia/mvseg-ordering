@@ -1,3 +1,4 @@
 type: random
 name: random
+# Total permutations; divided as evenly as possible across starts.
 permutations: 100

@@ -29,18 +29,6 @@ defaults:
   experiment_seed: 23
 
 experiments:
-  - name: pred_90_random_vs_mse
-    dice_cutoff: 0.9
-    commit_ground_truth: false
-    script_dir: experiments/scripts/random_v_MSE/experiment_buid/abl
-    plan: [B]
-    policies:
-      - ordering_config_path: experiments/ordering_configs/random_default.yaml
-      - ordering_config_path: experiments/ordering_configs/mse_min.yaml
-      - ordering_config_path: experiments/ordering_configs/mse_max.yaml
-      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
-      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
-
   - name: pretrained_baseline_random_vs_mse
     pretrained_model_score_goal: true
     commit_ground_truth: false
