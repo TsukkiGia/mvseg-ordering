@@ -13,7 +13,7 @@ Optionally, plot diffs relative to a baseline policy (policy - baseline) compute
 
 Sample CLI:
   # Raw per-position curves (all discovered policies)
-  python -m experiments.analysis.policy_position_curves --dataset BTCV --procedure random_v_MSE --metric iterations_used --baseline random --ablation pretrained_baseline
+  python -m experiments.analysis.policy_position_curves --dataset BTCV --procedure random_v_MSE --metric initial_dice --baseline random --ablation pretrained_baseline
 
   # Diffs vs baseline (e.g., random)
   python -m experiments.analysis.policy_position_curves \\

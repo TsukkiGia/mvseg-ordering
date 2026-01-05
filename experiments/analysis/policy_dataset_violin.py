@@ -11,14 +11,8 @@ We then plot a violin of these task-level diffs for each (policy, metric),
 with jittered task points.
 
 Sample CLI:
-  # Raw metrics (includes random) from subset_support_images_summary.csv
-  python -m experiments.analysis.policy_dataset_violin \\
-    --dataset BUID \\
-    --procedure random_vs_uncertainty \\
-    --raw
-
   # Diff violins from existing diffs.csv files
-  python -m experiments.analysis.policy_dataset_violin --dataset BTCV --procedure random_v_MSE --ablation pretrained_baseline
+  python -m experiments.analysis.policy_dataset_violin --dataset BUID --procedure random_v_MSE --ablation pretrained_baseline
 
   # Custom ablation folder name (instead of "pretrained_baseline")
   python -m experiments.analysis.policy_dataset_violin \\

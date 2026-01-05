@@ -3,7 +3,7 @@
 
 Sample CLI:
   # Scan a dataset family under experiments/scripts/<procedure>/<dataset_root>/*
-  python -m experiments.analysis.policy_dataset_scatter  --dataset BTCV  --procedure random_vs_uncertainty  --ablation pretrained_baseline
+  python -m experiments.analysis.policy_dataset_scatter  --dataset BUID  --procedure random_v_MSE  --ablation pretrained_baseline
 
   # Custom ablation folder name 
   python -m experiments.analysis.policy_dataset_scatter \\
@@ -48,7 +48,7 @@ def _resolve_dataset_root(dataset: str) -> str:
 def _default_outdir(dataset: str, procedure: str, *, ablation: str) -> Path:
     repo_root = Path(__file__).resolve().parents[2]
     root_name = _resolve_dataset_root(dataset)
-    return repo_root / "experiments" / "scripts" / procedure / root_name / "figures"
+    return repo_root / "experiments" / "scripts" / procedure / root_name / "figures" / ablation
 
 
 def build_diff_paths(dataset: str, procedure: str, *, ablation: str = "pretrained_baseline") -> list[Path]:
@@ -100,26 +100,19 @@ def main() -> None:
         default="pretrained_baseline",
         help="Ablation folder name under each task directory (default: abl).",
     )
-    ap.add_argument(
-        "--outdir",
-        type=Path,
-        default=None,
-        help="Output directory for plots (default: experiments/scripts/<procedure>/<dataset>/figures).",
-    )
+
     args = ap.parse_args()
-    if args.outdir is None:
-        args.outdir = _default_outdir(args.dataset, args.procedure, ablation=args.ablation)
+    outdir = _default_outdir(args.dataset, args.procedure, ablation=args.ablation)
 
     paths = build_diff_paths(args.dataset, args.procedure, ablation=args.ablation)
     df = load_diffs(paths)
+    df.to_csv(Path(__file__).resolve().parents[2] / "experiments" / "debug.csv")
 
     required = {"policy_name", "initial_dice_diff", "iterations_used_diff"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Missing required columns: {sorted(missing)}")
 
-    out_dir = args.outdir
-    out_dir.mkdir(parents=True, exist_ok=True)
     for policy in sorted(df["policy_name"].unique()):
         sub = df[df["policy_name"] == policy]
         x, y = _task_points(sub, x_col="initial_dice_diff", y_col="iterations_used_diff")
@@ -135,7 +128,7 @@ def main() -> None:
         plt.grid(alpha=0.3)
         out_name = f"{_slug(args.dataset)}_{_slug(policy)}_init_vs_iters_scatter.png"
         plt.tight_layout()
-        plt.savefig(out_dir / out_name, dpi=200)
+        plt.savefig(outdir / out_name, dpi=200)
         plt.close()
 
 

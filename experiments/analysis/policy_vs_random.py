@@ -3,7 +3,7 @@
 
 Usage:
   # Single dataset
-  python -m experiments.analysis.policy_vs_random --dataset BTCV --procedure random_v_MSE --ablation pretrained_baseline
+  python -m experiments.analysis.policy_vs_random --dataset BUID --procedure random_v_MSE --ablation pretrained_baseline
 """
 from __future__ import annotations
 
