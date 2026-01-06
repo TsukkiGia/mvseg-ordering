@@ -1,0 +1,4 @@
+type: multiverseg
+# Uses the hardcoded MultiverSeg encoder replica (4x256 blocks, layer norm).
+# Only override pooling if desired: gap, gmp, or gap_gmp.
+pooling: gap_gmp
