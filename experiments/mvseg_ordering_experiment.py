@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scribbleprompt.analysis.plot import show_points
 from typing import Union, Dict
+from experiments.dataset.tyche_augs import apply_tyche_augs
 from .ordering import (
     OrderingConfig,
     RandomConfig,
@@ -372,6 +373,36 @@ class MVSegOrderingExperiment():
         fig.savefig(figure_dir / f"Image_{image_index}_prediction_{iteration}.png")
         plt.close()
 
+    def _visualize_uncertainty_augs(
+        self,
+        *,
+        candidate_indices: Sequence[int],
+        support_dataset: DatasetType,
+        tyche_augs,
+        seed_folder_dir: Path,
+        selection_step: int,
+    ) -> None:
+        """Save a grid of Tyche-perturbed images per candidate at a selection step."""
+        if not candidate_indices or tyche_augs is None:
+            return
+        base_dir = seed_folder_dir / "UncertaintyPerturbations"
+        base_dir.mkdir(exist_ok=True)
+        for cand_id in candidate_indices:
+            image, _ = support_dataset.get_item_by_data_index(cand_id)
+            augmented = apply_tyche_augs(image, list(tyche_augs))
+            panels = [image.cpu()] + [img.cpu() for img in augmented]
+            n = len(panels)
+            fig, axes = plt.subplots(1, n, figsize=(3 * n, 3))
+            if n == 1:
+                axes = [axes]
+            for ax, tensor in zip(axes, panels):
+                arr = tensor.squeeze().detach().numpy()
+                ax.imshow(arr, cmap="gray")
+                ax.axis("off")
+            fig.suptitle(f"candidate {cand_id} – step {selection_step}")
+            fig.savefig(base_dir / f"step_{selection_step:03d}_candidate_{cand_id}.png", bbox_inches="tight", dpi=150)
+            plt.close(fig)
+
     def _update_context(
         self,
         context_images: torch.Tensor,
@@ -685,6 +716,14 @@ class MVSegOrderingExperiment():
                             tyche_augs=tyche_augs,
                             candidate_score=score,
                             selected=(candidate_id == selected_idx),
+                            selection_step=next_image_index,
+                        )
+                    if self.should_visualize:
+                        self._visualize_uncertainty_augs(
+                            candidate_indices=remaining,
+                            support_dataset=self.support_dataset,
+                            tyche_augs=tyche_augs,
+                            seed_folder_dir=seed_folder_dir,
                             selection_step=next_image_index,
                         )
                     current_index = selected_idx
