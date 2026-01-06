@@ -2,25 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
+from pathlib import Path
+import sys
 
-import einops as E
+import einops
 import torch
 from torch import nn
 
+# Ensure local deps are on sys.path for notebook/script usage without prior setup.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+for dep in ("MultiverSeg", "UniverSeg"):
+    dep_path = REPO_ROOT / dep
+    if dep_path.exists() and str(dep_path) not in sys.path:
+        sys.path.append(str(dep_path))
+
+from multiverseg.models.network import CrossBlock
 from universeg.validation import Kwargs, as_2tuple, size2t, validate_arguments_init
 from universeg.nn.vmap import vmap
-
-try:
-    from multiverseg.models.network import CrossBlock
-except ImportError:  # Allow usage without prior sys.path setup.
-    import sys
-    from pathlib import Path
-
-    repo_root = Path(__file__).resolve().parents[2]
-    multiverseg_root = repo_root / "MultiverSeg"
-    if str(multiverseg_root) not in sys.path:
-        sys.path.append(str(multiverseg_root))
-    from multiverseg.models.network import CrossBlock
 
 from .base import BaseEncoder
 
@@ -61,15 +59,25 @@ class MultiverSegEncoder(BaseEncoder):
         support_images: torch.Tensor | None = None,
         support_labels: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        """
+        Return a single embedding per image using global pooling over the final
+        MultiverSeg encoder feature map.
+        """
+        if len(image.shape) == 3:
+            image = image.unsqueeze(0)
         target, _support, _skips = self._encode(
             image=image,
             support_images=support_images,
             support_labels=support_labels,
         )
-        tokens = target.flatten(2).transpose(1,2)  # (B, T, C)
-        mu  = tokens.mean(dim=1)
-        sig = tokens.std(dim=1, unbiased=False)
-        emb = torch.cat([mu, sig], dim=-1)    # (B, 2C)
+        # target: (B, 1, C, H, W) -> (B, C, H, W)
+        feat = target.squeeze(1)
+        # Global avg and max pooling to capture coarse appearance statistics
+        gap = feat.mean(dim=(2, 3))
+        gmp = feat.amax(dim=(2, 3))
+        emb = torch.cat([gap, gmp], dim=-1)
+        # L2 normalize for downstream clustering stability
+        emb = emb / emb.norm(dim=-1, keepdim=True).clamp_min(1e-12)
         return emb
 
     def _encode(
@@ -80,7 +88,7 @@ class MultiverSegEncoder(BaseEncoder):
     ) -> Tuple[torch.Tensor, torch.Tensor, List[Tuple[torch.Tensor, torch.Tensor]]]:
         # Match MultiverSegNet input expectations (B 1 C H W).
         if len(image.shape) == 4:
-            target = E.rearrange(image, "B C H W -> B 1 C H W")
+            target = einops.rearrange(image, "B C H W -> B 1 C H W")
         else:
             target = image
 
