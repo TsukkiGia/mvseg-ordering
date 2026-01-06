@@ -192,7 +192,7 @@ def plot_task_violin(task_means: pd.DataFrame, out_dir: Path, dataset: str) -> N
                 continue
             jitter = 0.05 * np.random.randn(len(vals))
             plt.scatter(i + jitter, vals, color="black", alpha=0.7, s=15)
-        plt.title(f"{metric} (per-task mean diff)")
+        plt.title(f"{dataset} {metric} (per-task mean diff)")
         plt.ylabel(metric)
         plt.xticks(range(1, len(policies) + 1), policies, rotation=30, ha="right")
         plt.grid(alpha=0.3, axis="y")
