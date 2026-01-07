@@ -1,0 +1,4 @@
+type: representative
+name: representative_clip
+num_clusters: 3
+encoder_config_path: experiments/encoder_configs/clip_default.yaml

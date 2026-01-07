@@ -32,8 +32,6 @@ def zero_interaction_target5(image_chw: torch.Tensor) -> torch.Tensor:
     # channels 1..4 stay zeros: box, clicks(2ch), mask_input
     return x5
 
-
-
 @validate_arguments_init
 @dataclass(eq=False, repr=False)
 class MultiverSegEncoder(BaseEncoder):

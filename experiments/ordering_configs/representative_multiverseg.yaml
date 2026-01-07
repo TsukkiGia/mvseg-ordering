@@ -1,0 +1,4 @@
+type: representative
+name: representative_multiverseg
+num_clusters: 3
+encoder_config_path: experiments/encoder_configs/multiverseg_default.yaml

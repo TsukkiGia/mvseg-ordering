@@ -1,0 +1,41 @@
+version: 1
+
+# Compare Random ordering vs representative (embedding-based) ordering.
+#
+# Dry run (prints planned runs without executing):
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_v_repr/wbc_random_vs_repr.yaml
+#
+# Execute:
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_v_repr/wbc_random_vs_repr.yaml --run --only-plan B
+#
+# Notes:
+# - Each entry under `policies` becomes its own subfolder under `script_dir`, using
+#   the `name` field from the referenced ordering-config YAML.
+# - Plan B samples disjoint subsets of size `plan_b_subset_size` from the dataset.
+
+defaults:
+  prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
+  prompt_config_key: click_generator
+  prompt_iterations: 20
+  plan_b_subset_size: 10
+  use_mega_dataset: true
+  mega_dataset_name: WBC
+  mega_dataset_split: train
+
+  # Runtime
+  no_visualize: true
+  device: cuda
+  shards: 4
+  experiment_seed: 23
+
+experiments:
+  - name: pretrained_baseline_random_vs_repr
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_repr/experiment_wbc/pretrained_baseline
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/representative_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/representative_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/representative_vit.yaml

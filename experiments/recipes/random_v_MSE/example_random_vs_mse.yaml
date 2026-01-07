@@ -19,7 +19,7 @@ defaults:
   prompt_iterations: 20
   plan_b_subset_size: 10
   use_mega_dataset: true
-  mega_dataset_name: WBC
+  mega_dataset_name: BUID
   mega_dataset_split: train
 
   # Runtime
@@ -32,7 +32,7 @@ experiments:
   - name: pred_90_random_vs_mse
     dice_cutoff: 0.9
     commit_ground_truth: false
-    script_dir: experiments/scripts/random_v_MSE/example_random_vs_mse/abl
+    script_dir: experiments/scripts/random_v_MSE/example/abl
     plan: [B]
     policies:
       - ordering_config_path: experiments/ordering_configs/random_default.yaml

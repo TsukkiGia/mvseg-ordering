@@ -1,0 +1,4 @@
+type: representative
+name: representative_vit
+num_clusters: 3
+encoder_config_path: experiments/encoder_configs/vit_default.yaml

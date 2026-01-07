@@ -9,19 +9,19 @@ from typing import Any, Optional, Sequence
 from dataclasses import dataclass, replace
 import os
 os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-import torch
-import yaml
 import numpy as np
 import pandas as pd
+import torch
+import yaml
 
 from .dataset.wbc_multiple_perms import WBCDataset
 from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
-from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, UncertaintyConfig, AdaptiveOrderingConfig, NonAdaptiveOrderingConfig, compute_shard_indices
+from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, UncertaintyConfig, AdaptiveOrderingConfig, NonAdaptiveOrderingConfig, compute_shard_indices, RepresentativeConfig
 from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
 from .dataset.tyche_augs import TycheAugs
-
+from experiments.encoders.multiverseg_encoder import MultiverSegEncoder
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROMPT_CONFIG_DIR = SCRIPT_DIR / "prompt_generator_configs"
 SUBSET_SEED_STRIDE = 1000
@@ -80,6 +80,7 @@ def load_prompt_generator(config_path: Path, key: str):
 def load_ordering_config(
     config_path: Optional[Path],
     seed: int,
+    device: str,
     shard_id: Optional[int] = None,
     shard_count: Optional[int] = None,
 ) -> OrderingConfig:
@@ -132,6 +133,18 @@ def load_ordering_config(
             shard_id=shard_id,
             shard_count=shard_count,
             name=name,
+        )
+    if cfg_type == "representative":
+        num_clusters = int(cfg.get("num_clusters", 3))
+        encoder_cfg_path = cfg.get("encoder_config_path")
+        with open(Path(encoder_cfg_path), "r", encoding="utf-8") as fh:
+            encoder_cfg = yaml.safe_load(fh) or {}
+        return RepresentativeConfig(
+            seed=seed,
+            encoder_cfg=encoder_cfg,
+            num_clusters=num_clusters,
+            name=name,
+            device=device,
         )
 
     raise ValueError(f"Unknown ordering config type: {cfg_type}")
@@ -252,6 +265,12 @@ def run_shard_worker(shard_dir: str, setup: ExperimentSetup, shard_id: int, orde
     prompt_generator, interaction_protocol = load_prompt_generator(
         setup.prompt_config_path, setup.prompt_config_key
     ) 
+    shard_device = resolve_shard_device(setup.device, shard_id)
+    # Make sure shard-local configs (e.g., representative encoder) use the shard device.
+    if hasattr(ordering_config, "device"):
+        ordering_config.device = torch.device(shard_device)
+        if hasattr(ordering_config, "encoder") and getattr(ordering_config, "encoder") is not None:
+            ordering_config.encoder = ordering_config.encoder.to(ordering_config.device).eval()
 
     experiment = MVSegOrderingExperiment(
         support_dataset=setup.support_dataset,
@@ -263,7 +282,7 @@ def run_shard_worker(shard_dir: str, setup: ExperimentSetup, shard_id: int, orde
         seed=setup.seed,
         script_dir=shard_path,
         should_visualize=setup.should_visualize,
-        device=resolve_shard_device(setup.device, shard_id),
+        device=shard_device,
         eval_fraction=setup.eval_fraction,
         eval_checkpoints=setup.eval_checkpoints,
         ordering_config=ordering_config,
@@ -281,6 +300,7 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
         ordering_config = load_ordering_config(
             config_path=setup.ordering_config_path,
             seed=setup.seed,
+            device=setup.device,
         )
         experiment = MVSegOrderingExperiment(
             support_dataset=support_dataset,
@@ -308,6 +328,7 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
         ordering_config = load_ordering_config(
             config_path=setup.ordering_config_path,
             seed=setup.seed,
+            device=setup.device,
             shard_id=shard_id,
             shard_count=setup.shards,
             )
@@ -315,6 +336,10 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
         # Skip empty shards for non-adaptive configs (random/MSE) based on dataset size.
         if isinstance(ordering_config, RandomConfig):
             if not ordering_config.permutation_indices:
+                continue
+        elif isinstance(ordering_config, RepresentativeConfig):
+            # Representative ordering produces a single deterministic ordering; do not duplicate work across shards.
+            if shard_id != 0:
                 continue
         elif isinstance(ordering_config, MSEProximityConfig) or isinstance(ordering_config, UncertaintyConfig):
             shard_slice = compute_shard_indices(total_indices, shard_id, setup.shards)
