@@ -165,14 +165,13 @@ class RepresentativeConfig(NonAdaptiveOrderingConfig):
                 img, _ = support_dataset.get_item_by_data_index(idx)
                 img = img.to(self.device)
                 emb = encoder(img).detach().cpu().numpy()
-                embeddings[idx] = np.asarray(emb.squeeze(0), dtype=emb.dtype)
+                embeddings[idx] = _l2(np.asarray(emb.squeeze(0), dtype=emb.dtype))
 
         emb_matrix = np.stack([embeddings[i] for i in support_indices], axis=0)
         k = self.num_clusters
 
         labels, centroids = self._kmeans(emb_matrix, k)
-        dataset_centroid = _l2(emb_matrix.mean(axis=0, keepdims=True))[0]
-        centroids = _l2(centroids)
+        dataset_centroid = emb_matrix.mean(axis=0, keepdims=True)[0]
 
         ordering = self._order_from_clusters(
             support_indices=support_indices,
