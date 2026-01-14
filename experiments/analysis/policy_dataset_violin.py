@@ -12,7 +12,7 @@ with jittered task points.
 
 Sample CLI:
   # Diff violins from existing diffs.csv files
-  python -m experiments.analysis.policy_dataset_violin --dataset BUID --procedure random_v_MSE --ablation pretrained_baseline
+  python -m experiments.analysis.policy_dataset_violin --dataset ACDC --procedure random_v_MSE --ablation pretrained_baseline
 
   # Custom ablation folder name (instead of "pretrained_baseline")
   python -m experiments.analysis.policy_dataset_violin \\

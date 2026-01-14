@@ -3,7 +3,7 @@
 
 Sample CLI:
   # Scan a dataset family under experiments/scripts/<procedure>/<dataset_root>/*
-  python -m experiments.analysis.policy_dataset_scatter  --dataset BUID  --procedure random_v_MSE  --ablation pretrained_baseline
+  python -m experiments.analysis.policy_dataset_scatter  --dataset ACDC  --procedure random_v_MSE  --ablation pretrained_baseline
 
   # Custom ablation folder name 
   python -m experiments.analysis.policy_dataset_scatter \\
@@ -103,6 +103,7 @@ def main() -> None:
 
     args = ap.parse_args()
     outdir = _default_outdir(args.dataset, args.procedure, ablation=args.ablation)
+    outdir.mkdir(parents=True, exist_ok=True)
 
     paths = build_diff_paths(args.dataset, args.procedure, ablation=args.ablation)
     df = load_diffs(paths)
