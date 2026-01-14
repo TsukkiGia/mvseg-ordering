@@ -40,3 +40,17 @@ experiments:
       - ordering_config_path: experiments/ordering_configs/mse_max.yaml
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
+
+  - name: pretrained_5p_5ss
+    pretrained_model_score_goal: true
+    prompt_iterations: 5
+    plan_b_subset_size: 5
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_MSE/experiment_btcv/pretrained_5p_5ss
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_min.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_max.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
