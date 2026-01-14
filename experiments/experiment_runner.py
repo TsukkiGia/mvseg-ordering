@@ -1,6 +1,7 @@
 """Utility helpers to run MVSeg ordering experiments and plot their results."""
 
 import argparse
+import json
 import math
 import multiprocessing as mp
 from pathlib import Path
@@ -8,6 +9,11 @@ from typing import Any, Optional, Sequence
 
 from dataclasses import dataclass, replace
 import os
+import platform
+import socket
+import subprocess
+import sys
+from datetime import datetime, timezone
 os.environ.pop("CUDA_VISIBLE_DEVICES", None)
 import numpy as np
 import pandas as pd
@@ -47,6 +53,108 @@ class ExperimentSetup:
     device: str = "cpu"
     task_name: Optional[str] = None
     ordering_config_path: Optional[Path] = None
+
+
+def _safe_git_commit(repo_root: Path) -> Optional[str]:
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        return out or None
+    except Exception:
+        return None
+
+
+def write_run_metadata(
+    *,
+    output_dir: Path,
+    setup: ExperimentSetup,
+    ordering_config: OrderingConfig,
+    prompt_config_path: Path,
+    prompt_config_key: str,
+    shard_id: Optional[int] = None,
+    shard_count: Optional[int] = None,
+) -> None:
+    """
+    Write a lightweight JSON metadata file next to a run directory.
+
+    Intended to make thesis results auditable (what config produced these CSVs).
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    repo_root = Path(__file__).resolve().parents[1]
+    ts = datetime.now(timezone.utc).isoformat()
+
+    dataset = setup.support_dataset
+    dataset_len = None
+    try:
+        dataset_len = int(len(dataset))  # type: ignore[arg-type]
+    except Exception:
+        dataset_len = None
+
+    data_indices_len = None
+    try:
+        data_indices_len = len(dataset.get_data_indices())  # type: ignore[attr-defined]
+    except Exception:
+        data_indices_len = None
+
+    meta: dict[str, Any] = {
+        "timestamp_utc": ts,
+        "repo_root": str(repo_root),
+        "git_commit": _safe_git_commit(repo_root),
+        "python": {
+            "version": sys.version,
+            "executable": sys.executable,
+        },
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+            "hostname": socket.gethostname(),
+        },
+        "torch": {
+            "version": getattr(torch, "__version__", None),
+        },
+        "run": {
+            "script_dir": str(setup.script_dir),
+            "task_name": setup.task_name,
+            "seed": setup.seed,
+            "subset_size": setup.subset_size,
+            "shards": setup.shards,
+            "device": setup.device,
+            "eval_fraction": setup.eval_fraction,
+            "eval_checkpoints": setup.eval_checkpoints,
+            "prompt_iterations": setup.prompt_iterations,
+            "commit_ground_truth": setup.commit_ground_truth,
+            "dice_cutoff": setup.dice_cutoff,
+            "should_visualize": setup.should_visualize,
+            "ordering_config_path": str(setup.ordering_config_path) if setup.ordering_config_path else None,
+            "prompt_config_path": str(prompt_config_path),
+            "prompt_config_key": str(prompt_config_key),
+            "shard_id": shard_id,
+            "shard_count": shard_count,
+        },
+        "dataset": {
+            "type": type(dataset).__name__,
+            "len": dataset_len,
+            "data_indices_len": data_indices_len,
+        },
+        "ordering": {
+            "type": type(ordering_config).__name__,
+            "name": getattr(ordering_config, "name", None),
+        },
+    }
+
+    # Add representative encoder details when available.
+    if hasattr(ordering_config, "encoder_cfg"):
+        try:
+            meta["ordering"]["encoder_cfg"] = dict(getattr(ordering_config, "encoder_cfg") or {})
+        except Exception:
+            meta["ordering"]["encoder_cfg"] = None
+
+    out_path = output_dir / "run_metadata.json"
+    out_path.write_text(json.dumps(meta, indent=2, sort_keys=True), encoding="utf-8")
 
 
 class _SubsetDataset:
@@ -265,6 +373,15 @@ def run_shard_worker(shard_dir: str, setup: ExperimentSetup, shard_id: int, orde
     prompt_generator, interaction_protocol = load_prompt_generator(
         setup.prompt_config_path, setup.prompt_config_key
     ) 
+    write_run_metadata(
+        output_dir=shard_path,
+        setup=setup,
+        ordering_config=ordering_config,
+        prompt_config_path=setup.prompt_config_path,
+        prompt_config_key=setup.prompt_config_key,
+        shard_id=shard_id,
+        shard_count=setup.shards,
+    )
     shard_device = resolve_shard_device(setup.device, shard_id)
     # Make sure shard-local configs (e.g., representative encoder) use the shard device.
     if hasattr(ordering_config, "device"):
@@ -302,6 +419,13 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
             seed=setup.seed,
             device=setup.device,
         )
+        write_run_metadata(
+            output_dir=setup.script_dir,
+            setup=setup,
+            ordering_config=ordering_config,
+            prompt_config_path=setup.prompt_config_path,
+            prompt_config_key=setup.prompt_config_key,
+        )
         experiment = MVSegOrderingExperiment(
             support_dataset=support_dataset,
             prompt_generator=prompt_generator,
@@ -320,6 +444,28 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
         experiment.run_permutations()
         generate_plan_a_outputs(setup.script_dir / "results")
         return
+
+    # Write a top-level metadata file for the sharded run directory (Shard_* dirs also get their own).
+    try:
+        ordering_cfg_for_meta = load_ordering_config(
+            config_path=setup.ordering_config_path,
+            seed=setup.seed,
+            device=setup.device,
+            shard_id=0,
+            shard_count=setup.shards,
+        )
+        write_run_metadata(
+            output_dir=setup.script_dir,
+            setup=setup,
+            ordering_config=ordering_cfg_for_meta,
+            prompt_config_path=setup.prompt_config_path,
+            prompt_config_key=setup.prompt_config_key,
+            shard_id=None,
+            shard_count=setup.shards,
+        )
+    except Exception:
+        # Metadata is best-effort; do not fail the experiment run.
+        pass
 
     shard_dirs: list[Path] = []
     processes: list[mp.Process] = []

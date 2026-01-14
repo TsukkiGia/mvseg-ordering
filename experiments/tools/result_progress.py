@@ -38,6 +38,25 @@ def _gather_tasks(dataset_dir: Path) -> List[Path]:
     return sorted([p for p in dataset_dir.iterdir() if p.is_dir()])
 
 
+def _has_plan_dirs(path: Path) -> bool:
+    return (path / "A").is_dir() or (path / "B").is_dir()
+
+
+def _expand_target_dirs(task_dir: Path, commit_dir: str) -> List[Path]:
+    candidates = sorted(p for p in task_dir.glob(commit_dir) if p.is_dir())
+    targets: list[Path] = []
+    for candidate in candidates:
+        if _has_plan_dirs(candidate):
+            targets.append(candidate)
+            continue
+        child_dirs = sorted(p for p in candidate.iterdir() if p.is_dir())
+        if child_dirs:
+            targets.extend(child_dirs)
+        else:
+            targets.append(candidate)
+    return targets
+
+
 def count_results(dataset: str, plan: str, commit_dir: str, *, filename: str | None, procedure: str) -> None:
     plan = plan.upper()
     if plan not in PLAN_DEFAULTS:
@@ -57,19 +76,17 @@ def count_results(dataset: str, plan: str, commit_dir: str, *, filename: str | N
     completed_paths: list[Path] = []
 
     for task_dir in _gather_tasks(dataset_dir):
-        commit_path = task_dir / commit_dir
-        if not commit_path.exists():
+        target_dirs = _expand_target_dirs(task_dir, commit_dir)
+        if not target_dirs:
             continue
-        target_dir = commit_path 
-        if not target_dir.exists():
-            continue
-        total += 1
-        result_path = target_dir / subdir / target_filename
-        if result_path.exists():
-            completed += 1
-            completed_paths.append(result_path)
-        else:
-            missing_paths.append(result_path)
+        for target_dir in target_dirs:
+            total += 1
+            result_path = target_dir / subdir / target_filename
+            if result_path.exists():
+                completed += 1
+                completed_paths.append(result_path)
+            else:
+                missing_paths.append(result_path)
 
     print(f"Dataset: {dataset_dir.name} | Plan {plan} | Commit {commit_dir}")
     print(f"Total targets: {total}")
@@ -83,7 +100,13 @@ def count_results(dataset: str, plan: str, commit_dir: str, *, filename: str | N
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Count Plan A/B result completion per dataset/ablation.")
     ap.add_argument("dataset", help="Dataset key (e.g., total_segmentator or experiment_total_segmentator)")
-    ap.add_argument("commit_dir", help="Commit directory name (e.g., commit_label_90)")
+    ap.add_argument(
+        "commit_dir",
+        help=(
+            "Commit/policy directory pattern (e.g., commit_label_90 or pretrained_baseline/*). "
+            "If it points to a policy root (no A/B), child policy folders are counted."
+        ),
+    )
     ap.add_argument("--plan", choices=sorted(PLAN_DEFAULTS), default="B", help="Plan to inspect (default: B)")
     ap.add_argument("--filename", type=str, default=None, help="Override expected result filename")
     ap.add_argument("--procedure", type=str, default="random", help="Procedure folder under experiments/scripts (default: random)")
