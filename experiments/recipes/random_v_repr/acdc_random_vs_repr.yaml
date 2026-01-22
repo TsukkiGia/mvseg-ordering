@@ -39,3 +39,15 @@ experiments:
       - ordering_config_path: experiments/ordering_configs/representative_multiverseg.yaml
       - ordering_config_path: experiments/ordering_configs/representative_clip.yaml
       - ordering_config_path: experiments/ordering_configs/representative_vit.yaml
+
+  - name: pretrained_baseline_random_vs_repr_v2
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_repr_v2/experiment_acdc/pretrained_baseline
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/representative_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/representative_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/representative_vit.yaml
