@@ -586,7 +586,10 @@ class MVSegOrderingExperiment():
         all_uncertainty_perturbations = []
 
         index_lookup = {idx: pos for pos, idx in enumerate(support_indices)}
-        start_indices = self.ordering_config.get_start_positions(support_indices)
+        start_indices = self.ordering_config.get_start_positions_for_dataset(
+            self.support_dataset,
+            support_indices,
+        )
         total_runs = len(start_indices)
         for run_idx, start_index in enumerate(start_indices):
             start_pos = index_lookup.get(start_index)

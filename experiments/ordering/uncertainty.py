@@ -9,6 +9,7 @@ from ..score.uncertainty import binary_entropy_from_mc_probs, pairwise_dice_disa
 from .base import AdaptiveOrderingConfig
 
 
+
 class UncertaintyConfig(AdaptiveOrderingConfig):
     """
     Curriculum-based ordering configuration.
@@ -58,6 +59,14 @@ class UncertaintyConfig(AdaptiveOrderingConfig):
         from .base import compute_shard_indices  # local import to avoid cycle
         perm_indices = compute_shard_indices(len(start_indices), self.shard_id, self.shard_count)
         return [start_indices[i] for i in perm_indices]
+
+    def get_start_positions_for_dataset(
+        self,
+        support_dataset: Any,
+        candidate_indices: Sequence[int],
+    ) -> list[int]:
+        """Dataset-aware start selection hook; defaults to all start positions."""
+        return self.get_start_positions(candidate_indices)
 
     def compute_uncertainty_score(
         self,
@@ -154,3 +163,4 @@ class UncertaintyConfig(AdaptiveOrderingConfig):
         if return_details:
             return selected_idx, scored, tyche_augs
         return selected_idx
+

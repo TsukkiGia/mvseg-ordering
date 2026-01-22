@@ -23,7 +23,7 @@ import yaml
 from .dataset.wbc_multiple_perms import WBCDataset
 from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
-from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, UncertaintyConfig, AdaptiveOrderingConfig, NonAdaptiveOrderingConfig, compute_shard_indices, RepresentativeConfig
+from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, UncertaintyConfig, StartSelectedUncertaintyConfig, AdaptiveOrderingConfig, NonAdaptiveOrderingConfig, compute_shard_indices, RepresentativeConfig
 from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
 from .dataset.tyche_augs import TycheAugs
@@ -238,6 +238,24 @@ def load_ordering_config(
             k=k,
             tyche_sampler=tyche_sampler,
             reverse=reverse,
+            shard_id=shard_id,
+            shard_count=shard_count,
+            name=name,
+        )
+    if cfg_type == "uncertainty_start":
+        metric = "pairwise_dice"
+        k = int(cfg.get("k", 3))
+        reverse = True
+        start_selector = cfg.get("start_selector", "first")
+        tyche_seed = cfg.get("tyche_seed", seed)
+        tyche_sampler = TycheAugs(seed=tyche_seed)
+        return StartSelectedUncertaintyConfig(
+            seed=seed,
+            metric=metric,
+            k=k,
+            tyche_sampler=tyche_sampler,
+            reverse=reverse,
+            start_selector=start_selector,
             shard_id=shard_id,
             shard_count=shard_count,
             name=name,
@@ -485,6 +503,10 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
                 continue
         elif isinstance(ordering_config, RepresentativeConfig):
             # Representative ordering produces a single deterministic ordering; do not duplicate work across shards.
+            if shard_id != 0:
+                continue
+        elif isinstance(ordering_config, StartSelectedUncertaintyConfig):
+            # Single deterministic start; avoid duplicate shards.
             if shard_id != 0:
                 continue
         elif isinstance(ordering_config, MSEProximityConfig) or isinstance(ordering_config, UncertaintyConfig):

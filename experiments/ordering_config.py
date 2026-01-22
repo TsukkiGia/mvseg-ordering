@@ -6,6 +6,7 @@ Existing imports of `experiments.ordering_config` will continue to work.
 
 from .ordering import (
     UncertaintyConfig,
+    StartSelectedUncertaintyConfig,
     MSEProximityConfig,
     OrderingConfig,
     RandomConfig,
@@ -21,6 +22,7 @@ __all__ = [
     "MSEProximityConfig",
     "RepresentativeConfig",
     "UncertaintyConfig",
+    "StartSelectedUncertaintyConfig",
     "compute_shard_indices",
     "AdaptiveOrderingConfig",
     "NonAdaptiveOrderingConfig"

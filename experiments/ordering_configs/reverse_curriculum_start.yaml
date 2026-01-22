@@ -1,0 +1,6 @@
+type: uncertainty_start
+name: reverse_curriculum_start
+metric: pairwise_dice
+k: 3
+reverse: true
+start_selector: first
