@@ -249,6 +249,7 @@ def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> Exp
         )
 
     subset_size = None
+    subset_count = None
     eval_fraction = None
     eval_checkpoints = None
     if plan == "A":
@@ -256,6 +257,7 @@ def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> Exp
         eval_checkpoints = cfg.get("eval_checkpoints")
     else:
         subset_size = cfg.get("plan_b_subset_size", cfg.get("subset_size"))
+        subset_count = cfg.get("plan_b_num_subsets", cfg.get("subset_count"))
 
     ordering_cfg_path = cfg.get("ordering_config_path")
     resolved_ordering_path = None if ordering_cfg_path is None else Path(ordering_cfg_path)
@@ -271,6 +273,7 @@ def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> Exp
         should_visualize=not bool(cfg.get("no_visualize", False)),
         seed=int(cfg.get("experiment_seed", 23)),
         subset_size=subset_size,
+        subset_count=subset_count,
         shards=int(cfg.get("shards", 1)),
         device=str(cfg.get("device", "cpu")),
         eval_fraction=eval_fraction,

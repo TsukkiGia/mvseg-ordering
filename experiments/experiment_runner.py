@@ -47,6 +47,7 @@ class ExperimentSetup:
     should_visualize: bool
     seed: int = 23
     subset_size: Optional[int] = None
+    subset_count: Optional[int] = None
     eval_fraction: float = None
     eval_checkpoints: Optional[list[int]] = None
     shards: int = 1
@@ -121,6 +122,7 @@ def write_run_metadata(
             "task_name": setup.task_name,
             "seed": setup.seed,
             "subset_size": setup.subset_size,
+            "subset_count": setup.subset_count,
             "shards": setup.shards,
             "device": setup.device,
             "eval_fraction": setup.eval_fraction,
@@ -290,6 +292,24 @@ def sample_disjoint_subsets(indices: Sequence[int], subset_size: int, seed: int)
         subsets.append(subset)
         chosen_set = set(subset)
         remaining = [idx for idx in remaining if idx not in chosen_set]
+    return subsets
+
+
+def sample_random_subsets(
+    indices: Sequence[int],
+    subset_size: int,
+    subset_count: int,
+    seed: int,
+) -> list[list[int]]:
+    rng = np.random.default_rng(seed)
+    subsets: list[list[int]] = []
+    if subset_size <= 0 or subset_count <= 0:
+        return subsets
+    if subset_size > len(indices):
+        raise ValueError("subset_size cannot exceed the number of available indices.")
+    for _ in range(int(subset_count)):
+        choice = rng.choice(indices, size=subset_size, replace=False)
+        subsets.append(choice.tolist())
     return subsets
 
 
@@ -535,9 +555,14 @@ def run_plan_B(setup: ExperimentSetup):
 
     base_dataset = setup.support_dataset
     all_indices = list(base_dataset.get_data_indices())
-    subsets = sample_disjoint_subsets(
-        all_indices, subset_size, setup.seed
-    )
+    if setup.subset_count is not None:
+        subsets = sample_random_subsets(
+            all_indices, subset_size, setup.subset_count, setup.seed
+        )
+    else:
+        subsets = sample_disjoint_subsets(
+            all_indices, subset_size, setup.seed
+        )
 
     for subset_idx, subset_indices in enumerate(subsets):
         subset_dir = plan_b_root / f"Subset_{subset_idx}"
@@ -605,6 +630,12 @@ def parse_args() -> argparse.Namespace:
         help="Directory where experiment artifacts and results are stored.",
     )
     parser.add_argument("--subset-size", type=int, default=None, help="Subset size for Plan B style runs.")
+    parser.add_argument(
+        "--subset-count",
+        type=int,
+        default=None,
+        help="Number of subsets for Plan B when sampling with replacement across subsets.",
+    )
     parser.add_argument(
         "--no-visualize",
         dest="should_visualize",
@@ -710,6 +741,7 @@ if __name__ == "__main__":
         should_visualize=args.should_visualize,
         seed=args.experiment_seed,
         subset_size=args.subset_size,
+        subset_count=args.subset_count,
         shards=args.shards,
         device=args.device,
         eval_fraction=args.eval_fraction,
