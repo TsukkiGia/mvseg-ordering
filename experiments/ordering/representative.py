@@ -4,9 +4,12 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 import torch
+from sklearn.cluster import KMeans
 
 from .base import NonAdaptiveOrderingConfig
 from experiments.encoders.clip import CLIPEncoder
+from experiments.encoders.dinov2 import DinoV2Encoder
+from experiments.encoders.medsam import MedSAMEncoder
 from experiments.encoders.multiverseg_encoder import MultiverSegEncoder
 from experiments.encoders.vit import ViTEncoder
 
@@ -59,6 +62,18 @@ class RepresentativeConfig(NonAdaptiveOrderingConfig):
                 model_name=self.encoder_cfg.get("model_name", "vit_b_16"),
                 pretrained=bool(self.encoder_cfg.get("pretrained", True)),
             )
+        elif enc_type == "dinov2":
+            encoder = DinoV2Encoder(
+                model_name=self.encoder_cfg.get("model_name", "facebook/dinov2-base"),
+                local_path=self.encoder_cfg.get("local_path"),
+            )
+        elif enc_type == "medsam":
+            encoder = MedSAMEncoder(
+                model_type=self.encoder_cfg.get("model_type", "vit_b"),
+                checkpoint_path=self.encoder_cfg.get("checkpoint_path"),
+                image_size=int(self.encoder_cfg.get("image_size", 1024)),
+                pooling=self.encoder_cfg.get("pooling", "gap_gmp"),
+            )
         else:
             raise ValueError(f"Unknown encoder type: {enc_type}")
 
@@ -67,35 +82,17 @@ class RepresentativeConfig(NonAdaptiveOrderingConfig):
         self.encoder = encoder
         return encoder
 
-    def _kmeans(self, data: np.ndarray, k: int, iters: int = 20) -> tuple[np.ndarray, np.ndarray]:
-        """Lightweight k-means on CPU."""
+    def _kmeans(self, data: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+        """K-means via scikit-learn (k-means++ init, multiple inits)."""
         n, _ = data.shape
         k = min(int(k), n)
-        rng = np.random.default_rng(self.seed)
+        if k <= 0:
+            raise ValueError("k must be >= 1.")
 
-        # Pick k distinct points as initial centroids
-        init_idx = rng.choice(n, size=k, replace=False)
-        centroids = data[init_idx]
-        labels = np.zeros(n, dtype=int)
-
-        for _ in range(iters):
-            # Assign each point to the nearest centroid
-            dists = np.empty((n, k), dtype=data.dtype)
-            for i in range(n):
-                for j in range(k):
-                    diff = data[i] - centroids[j]      # (D,)
-                    dists[i, j] = (diff * diff).sum()  
-
-            labels = dists.argmin(axis=1)
-            # Recompute centroids as the mean of assigned points
-            new_centroids = centroids.copy()
-            for i in range(k):
-                mask = labels == i
-                if np.any(mask):
-                    new_centroids[i] = data[mask].mean(axis=0)
-            if np.allclose(new_centroids, centroids):
-                break
-            centroids = new_centroids
+        # Use an explicit integer for n_init for broad sklearn compatibility.
+        kmeans = KMeans(n_clusters=k, random_state=self.seed, n_init=10)
+        labels = kmeans.fit_predict(data)
+        centroids = kmeans.cluster_centers_
         return labels, centroids
 
     def _order_from_clusters(

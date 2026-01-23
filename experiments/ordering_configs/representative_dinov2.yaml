@@ -1,0 +1,4 @@
+type: representative
+name: representative_dinov2
+num_clusters: 3
+encoder_config_path: experiments/encoder_configs/dinov2_default.yaml
