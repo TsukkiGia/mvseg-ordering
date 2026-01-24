@@ -12,7 +12,7 @@ with jittered task points.
 
 Sample CLI:
   # Diff violins from existing diffs.csv files
-  python -m experiments.analysis.policy_dataset_violin --dataset ACDC --procedure random_v_MSE --ablation pretrained_baseline
+  python -m experiments.analysis.policy_dataset_violin --dataset BUID --procedure random_v_MSE --ablation pretrained_baseline
 
   # Custom ablation folder name (instead of "pretrained_baseline")
   python -m experiments.analysis.policy_dataset_violin \\
@@ -33,8 +33,8 @@ import numpy as np
 import pandas as pd
 import re
 import os
-from .policy_vs_random import policy_vs_random as compute_policy_diffs
-from .task_explorer import FAMILY_ROOTS, iter_family_task_dirs
+from .task_explorer import FAMILY_ROOTS
+from .planb_utils import load_planb_summaries
 
 
 def _slug(text: str) -> str:
@@ -88,21 +88,6 @@ def load_diffs(patterns: Iterable[str]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-def load_summaries(patterns: Iterable[str]) -> pd.DataFrame:
-    paths: list[Path] = []
-    for pat in patterns:
-        matches = glob.glob(pat)
-        if not matches and Path(pat).exists():
-            matches = [pat]
-        paths.extend(Path(p) for p in matches)
-    if not paths:
-        raise FileNotFoundError(f"No summary CSVs matched patterns: {patterns}")
-    frames = []
-    for p in paths:
-        df = pd.read_csv(p)
-        frames.append(df)
-    return pd.concat(frames, ignore_index=True)
-
 
 def build_diff_paths_from_datasets(
     datasets: Iterable[str],
@@ -122,22 +107,6 @@ def build_diff_paths_from_datasets(
             continue
         for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
             paths.append(task_dir / ablation / "diffs.csv")
-    return paths
-
-def build_summary_paths_from_datasets(
-    datasets: Iterable[str],
-    procedure: str,
-    *,
-    ablation: str = "pretrained_baseline",
-) -> list[Path]:
-    repo_root = Path(__file__).resolve().parents[2]
-    paths: list[Path] = []
-    for _, task_dir, _ in iter_family_task_dirs(
-        repo_root,
-        procedure=procedure,
-        include_families=datasets,
-    ):
-        paths.append(task_dir / ablation / "*" / "B" / "subset_support_images_summary.csv")
     return paths
 
 def compute_task_means(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
@@ -242,18 +211,16 @@ def main() -> None:
     args = ap.parse_args()
     outdir = _default_outdir(args.dataset, args.procedure, ablation=args.ablation)
 
-    patterns: list[str] = []
-    if args.raw:
-        patterns.extend([str(p) for p in build_summary_paths_from_datasets([args.dataset], args.procedure, ablation=args.ablation)])
-    else:
-        patterns.extend([str(p) for p in build_diff_paths_from_datasets([args.dataset], args.procedure, ablation=args.ablation)])
-    if not patterns:
-        raise SystemExit("Provide --dataset")
-
     dataset_label = args.dataset
 
     if args.raw:
-        df = load_summaries(patterns)
+        df = load_planb_summaries(
+            repo_root=Path(__file__).resolve().parents[2],
+            procedure=args.procedure,
+            ablation=args.ablation,
+            dataset=args.dataset,
+            filename="subset_support_images_summary.csv",
+        )
         df = _compute_start_image(df)
         if args.metrics is None:
             metrics = ["initial_dice", "final_dice", "iterations_used"]
@@ -263,9 +230,10 @@ def main() -> None:
         if not metrics:
             raise SystemExit("No valid metric columns found in summary CSVs.")
     else:
-        diffs_paths: list[Path] = []
         expected = build_diff_paths_from_datasets([args.dataset], args.procedure, ablation=args.ablation)
         diffs_paths = [p for p in expected if p.exists()]
+        if not diffs_paths:
+            raise FileNotFoundError("No diffs.csv files found for the requested dataset.")
         df = load_diffs([str(p) for p in diffs_paths])
 
         if args.metrics is None:

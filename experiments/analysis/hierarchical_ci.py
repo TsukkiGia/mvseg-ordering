@@ -78,7 +78,6 @@ def hierarchical_bootstrap_task_estimates(
     subset_scores_by_task: Dict[str, np.ndarray],
     *,
     n_boot: int = 100,
-    n_samples: int = 10,
     seed: int = 0,
 ) -> Dict[str, np.ndarray]:
     """Return per-task bootstrap estimates (aligned seeds across tasks)."""
@@ -96,12 +95,33 @@ def hierarchical_bootstrap_task_estimates(
             rng = np.random.default_rng(seed_i)
 
             # Resample subset scores with replacement.
-            idx = rng.integers(0, scores.size, size=int(n_samples))
+            idx = rng.integers(0, scores.size, size=scores.size)
 
             # Store one bootstrap estimate per task.
             task_boot[task].append(float(scores[idx].mean()))
 
     return task_boot
+
+
+def dataset_bootstrap_stats(
+    task_boot: Dict[str, np.ndarray],
+    *,
+    alpha: float = 0.05,
+) -> tuple[np.ndarray, float, float, float]:
+    """Combine paired task estimates into dataset-level replicates + mean/CI."""
+    tasks = sorted(task_boot.keys())
+    if not tasks:
+        return np.array([]), float("nan"), float("nan"), float("nan")
+    n_boot = min(len(task_boot[t]) for t in tasks)
+    if n_boot == 0:
+        return np.array([]), float("nan"), float("nan"), float("nan")
+    dataset_boot = np.array(
+        [np.mean([task_boot[t][i] for t in tasks]) for i in range(n_boot)],
+        dtype=float,
+    )
+    lo, hi = np.quantile(dataset_boot, [alpha / 2, 1 - alpha / 2])
+    mean = float(dataset_boot.mean())
+    return dataset_boot, mean, float(lo), float(hi)
 
 
 def hierarchical_bootstrap_dataset(
@@ -138,19 +158,10 @@ def hierarchical_bootstrap_dataset(
     task_boot = hierarchical_bootstrap_task_estimates(
         subset_scores_by_task,
         n_boot=n_boot,
-        n_samples=n_samples,
         seed=seed,
     )
 
-    tasks = sorted(task_boot.keys())
-    # Combine paired task estimates into dataset-level replicates.
-    dataset_boot = []
-    for i in range(n_boot):
-        vals = np.array([task_boot[t][i] for t in tasks], dtype=float)
-        dataset_boot.append(float(vals.mean()))
-
-    lo, hi = np.quantile(dataset_boot, [0.025, 0.975])
-    mean = float(dataset_boot.mean())
+    dataset_boot, mean, lo, hi = dataset_bootstrap_stats(task_boot, alpha=0.05)
 
     return {
         "dataset_bootstrap": dataset_boot,

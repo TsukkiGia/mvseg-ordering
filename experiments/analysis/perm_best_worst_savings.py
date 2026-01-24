@@ -9,6 +9,7 @@ from typing import Optional, Tuple, Dict, Any
 import numpy as np
 import pandas as pd
 
+from .planb_utils import load_planb_summaries
 
 @dataclass(frozen=True)
 class PermSummary:
@@ -107,6 +108,16 @@ def analyze_ablation(
       savings: dict with overall_savings and chosen_subset
     """
     df = _read_subset_support_summary(task_root)
+    return analyze_ablation_df(df, metric=metric)
+
+
+def analyze_ablation_df(
+    df: pd.DataFrame,
+    metric: str = "initial_dice",
+) -> Tuple[pd.DataFrame, pd.DataFrame, PermSummary, PermSummary, Dict[str, Any]]:
+    """Analyze a Plan B summary DataFrame and return best/worst permutation stats."""
+    if df.empty:
+        raise ValueError("Empty summary dataframe.")
     chosen_subset = _select_subset_with_max_initial_range(df, metric)
     df_sub = df[df["subset_index"] == chosen_subset]
     per_perm = _permutation_table(df_sub, metric=metric)
@@ -135,3 +146,33 @@ def analyze_ablation(
         "overall_savings": float(overall_savings),
         "chosen_subset": int(chosen_subset),
     }
+
+
+def analyze_planb_task(
+    *,
+    repo_root: Path,
+    procedure: str,
+    dataset: str,
+    task_name: str,
+    ablation: str = "pretrained_baseline",
+    policy: str = "random",
+    metric: str = "initial_dice",
+) -> Tuple[pd.DataFrame, pd.DataFrame, PermSummary, PermSummary, Dict[str, Any]]:
+    """Load a task's Plan B summary via planb_utils, then analyze best/worst permutations."""
+    full_df = load_planb_summaries(
+        repo_root=repo_root,
+        procedure=procedure,
+        ablation=ablation,
+        dataset=dataset,
+        filename="subset_support_images_summary.csv",
+    )
+    df_task = full_df[
+        (full_df["policy_name"] == policy)
+        & (full_df["task_name"] == task_name)
+    ]
+    if df_task.empty:
+        raise FileNotFoundError(
+            f"No rows found for dataset={dataset} task={task_name} "
+            f"policy={policy} ablation={ablation} procedure={procedure}."
+        )
+    return analyze_ablation_df(df_task, metric=metric)

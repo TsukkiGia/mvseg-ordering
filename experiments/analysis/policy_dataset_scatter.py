@@ -3,13 +3,13 @@
 
 Sample CLI:
   # Scan a dataset family under experiments/scripts/<procedure>/<dataset_root>/*
-  python -m experiments.analysis.policy_dataset_scatter  --dataset ACDC  --procedure random_v_MSE  --ablation pretrained_baseline
+  python -m experiments.analysis.policy_dataset_scatter  --dataset ACDC  --procedure random_v_MSE  --ablation pretrained_5p_5ss
 
   # Custom ablation folder name 
   python -m experiments.analysis.policy_dataset_scatter \\
     --dataset BUID \\
-    --procedure random_vs_uncertainty \\
-    --ablation pretrained_baseline
+    --procedure random_v_MSE \\
+    --ablation pretrained_5p_5ss
 
 Notes:
   diffs.csv is typically one row per (task, subset, start_image_id). To avoid

@@ -30,7 +30,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .task_explorer import FAMILY_ROOTS, iter_family_task_dirs
+from .task_explorer import FAMILY_ROOTS
+from .hierarchical_ci import hierarchical_bootstrap_task_estimates, dataset_bootstrap_stats
+from .planb_utils import iter_planb_policy_files
 
 
 @dataclass(frozen=True)
@@ -47,9 +49,8 @@ METRIC_DISPLAY_NAMES = {
     "range": "Range",
 }
 
-BOOTSTRAP_SAMPLES = 2000
+BOOTSTRAP_SAMPLES = 100
 BOOTSTRAP_ALPHA = 0.05
-_BOOTSTRAP_RNG = np.random.default_rng(0)
 
 MEASURE_CONFIGS: Dict[str, MeasureConfig] = {
     "initial_dice": MeasureConfig(
@@ -99,73 +100,47 @@ def iter_policy_records(
     metric_column = measure_config.metric_columns[metric_name]
     palette = plt.get_cmap("tab10").colors
 
-    for family, task_dir, _ in iter_family_task_dirs(
-        repo_root,
+    for meta in iter_planb_policy_files(
+        repo_root=repo_root,
         procedure=procedure,
+        ablation=ablation,
+        filename=measure_config.file_name,
         include_families=include_families,
+        default_policy="random",
     ):
-        task_id = f"{family}/{task_dir.name}"
-        abl_dir = task_dir / ablation
-        if not abl_dir.exists():
-            continue
-        policy_dirs = sorted(
-            p for p in abl_dir.iterdir()
-            if p.is_dir() and (p / "B" / measure_config.file_name).exists()
-        )
-        if policy_dirs:
-            for policy_dir in policy_dirs:
-                b_dir = policy_dir / "B"
-                csv_path = b_dir / measure_config.file_name
-                df = pd.read_csv(csv_path)
-                if metric_column not in df.columns:
-                    continue
-                vals = df[metric_column].dropna().to_numpy(dtype=float)
-                if vals.size == 0:
-                    continue
-                yield {
-                    "family": family,
-                    "dataset": task_id,
-                    "policy": policy_dir.name,
-                    "color": _policy_color(policy_dir.name, palette),
-                    "center": float(np.mean(vals)),
-                    "low": float(np.min(vals)),
-                    "high": float(np.max(vals)),
-                }
-            continue
-
-        b_dir = abl_dir / "B"
-        csv_path = b_dir / measure_config.file_name
-        if not csv_path.exists():
-            continue
+        csv_path = Path(meta["csv_path"])
         df = pd.read_csv(csv_path)
         if metric_column not in df.columns:
             continue
         vals = df[metric_column].dropna().to_numpy(dtype=float)
         if vals.size == 0:
             continue
-        policy_name = "random"
+        policy_name = str(meta["policy_name"])
         yield {
-            "family": family,
-            "dataset": task_id,
+            "family": meta["family"],
+            "task_id": meta["task_id"],
             "policy": policy_name,
             "color": _policy_color(policy_name, palette),
             "center": float(np.mean(vals)),
             "low": float(np.min(vals)),
             "high": float(np.max(vals)),
+            "subset_values": vals,
         }
 
-def _bootstrap_mean_ci(vals: np.ndarray) -> tuple[float, float]:
-    if vals.size <= 1:
-        mean = float(vals.mean()) if vals.size else float("nan")
-        return mean, mean
-    idx = _BOOTSTRAP_RNG.integers(0, vals.size, size=(BOOTSTRAP_SAMPLES, vals.size))
-    sample_means = vals[idx].mean(axis=1)
-    lo = float(np.quantile(sample_means, BOOTSTRAP_ALPHA / 2))
-    hi = float(np.quantile(sample_means, 1 - BOOTSTRAP_ALPHA / 2))
-    return lo, hi
+def _hierarchical_mean_ci(subset_scores_by_task: Dict[str, np.ndarray]) -> tuple[float, float, float]:
+    tasks = sorted(subset_scores_by_task.keys())
+    if not tasks:
+        return float("nan"), float("nan"), float("nan")
 
-def _policy_order(records: Iterable[Dict[str, float | str]]) -> List[str]:
-    return list(dict.fromkeys(rec["policy"] for rec in records))
+    task_boot = hierarchical_bootstrap_task_estimates(
+        subset_scores_by_task,
+        n_boot=BOOTSTRAP_SAMPLES,
+        seed=23,
+    )
+    dataset_boot, mean, lo, hi = dataset_bootstrap_stats(
+        task_boot, alpha=BOOTSTRAP_ALPHA
+    )
+    return mean, lo, hi
 
 def plot_family_policy(
     family: str,
@@ -188,9 +163,11 @@ def plot_family_policy(
         sub = data[data["policy"] == policy]
         if sub.empty:
             continue
-        vals = sub["center"].to_numpy(dtype=float)
-        mean = float(vals.mean())
-        lo, hi = _bootstrap_mean_ci(vals)
+        subset_scores_by_task = {
+            str(row["task_id"]): np.asarray(row["subset_values"], dtype=float)
+            for _, row in sub.iterrows()
+        }
+        mean, lo, hi = _hierarchical_mean_ci(subset_scores_by_task)
         color = sub["color"].iloc[0]
         rows.append({"policy": policy, "center": mean, "low": lo, "high": hi, "color": color})
         global_low = lo if global_low is None else min(global_low, lo)
@@ -233,7 +210,7 @@ def plot_family_grid(
     output_path: Path,
     x_label: str,
     title_template: str,
-    policy_order: Optional[List[str]] = None,
+    policy_order: List[str]
 ) -> None:
     if not family_to_records:
         return
@@ -242,10 +219,7 @@ def plot_family_grid(
     if not families:
         return
 
-    order = policy_order or _policy_order(
-        rec for fam in families for rec in family_to_records.get(fam, [])
-    )
-
+    order = policy_order
     ncols = 3 if len(families) >= 3 else len(families)
     nrows = math.ceil(len(families) / max(ncols, 1))
     fig_width = 6 * max(ncols, 1)
@@ -270,9 +244,11 @@ def plot_family_grid(
             sub = data[data["policy"] == policy]
             if sub.empty:
                 continue
-            vals = sub["center"].to_numpy(dtype=float)
-            mean = float(vals.mean())
-            lo, hi = _bootstrap_mean_ci(vals)
+            subset_scores_by_task = {
+                str(row["task_id"]): np.asarray(row["subset_values"], dtype=float)
+                for _, row in sub.iterrows()
+            }
+            mean, lo, hi = _hierarchical_mean_ci(subset_scores_by_task)
             color = sub["color"].iloc[0]
             rows.append({"policy": policy, "center": mean, "low": lo, "high": hi, "color": color})
             global_low = lo if global_low is None else min(global_low, lo)
@@ -404,7 +380,9 @@ def main() -> None:
     if not collected:
         raise SystemExit("No records found for the given procedure/ablation.")
 
-    policy_order = _policy_order(rec for recs in collected.values() for rec in recs)
+    policy_order = list(
+        dict.fromkeys(rec["policy"] for recs in collected.values() for rec in recs)
+    )
     make_family_plots = args.split_by_family or args.family is not None
     make_family_grid = args.family_grid or not make_family_plots
 

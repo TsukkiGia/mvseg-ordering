@@ -3,6 +3,7 @@ from .random import RandomConfig
 from .mse_proximity import MSEProximityConfig
 from .representative import RepresentativeConfig
 from .uncertainty import UncertaintyConfig
+from .uncertainty_start import StartSelectedUncertaintyConfig
 
 __all__ = [
     "OrderingConfig",
@@ -13,4 +14,5 @@ __all__ = [
     "MSEProximityConfig",
     "RepresentativeConfig",
     "UncertaintyConfig",
+    "StartSelectedUncertaintyConfig",
 ]

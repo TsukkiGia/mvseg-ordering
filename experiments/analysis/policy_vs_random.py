@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterable
 
 from experiments.analysis.task_explorer import iter_family_task_dirs
+from experiments.analysis.planb_utils import load_planb_summaries
 import pandas as pd
 
 
@@ -88,22 +89,23 @@ def _infer_task_id(path: Path, depth: int = 3, *, ablation: str = "pretrained_ba
 def build_dataset_dfs(dataset: str, procedure: str, *, ablation: str = "pretrained_baseline") -> list[tuple[str, pd.DataFrame]]:
     dataset_dfs = []
     repo_root = Path(__file__).resolve().parents[2]
-    for _, task_dir, _ in iter_family_task_dirs(
+    full_df = load_planb_summaries(
+        repo_root=repo_root,
+        procedure=procedure,
+        ablation=ablation,
+        dataset=dataset,
+        filename="subset_support_images_summary.csv",
+    )
+
+    for family, task_dir, _ in iter_family_task_dirs(
         repo_root,
         procedure=procedure,
         include_families=[dataset],
-    ):  
-        abl_dir = task_dir / ablation
-        random_dir = abl_dir / "random" / "B"/ "subset_support_images_summary.csv"
-        if not random_dir.exists():
+    ):
+        task_id = f"{family}/{task_dir.name}"
+        task_df = full_df[full_df["task_id"] == task_id].copy()
+        if task_df.empty:
             continue
-        policy_dfs = []
-        for policy_dir in abl_dir.iterdir():
-            p = policy_dir / "B"/ "subset_support_images_summary.csv"
-            df = pd.read_csv(p)
-            df["task_id"] = _infer_task_id(p, ablation=ablation)
-            policy_dfs.append(df)
-        task_df = pd.concat(policy_dfs, ignore_index=True)
         dataset_dfs.append((task_dir, task_df))
     return dataset_dfs
 

@@ -11,21 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
-FAMILY_ROOTS: Dict[str, str] = {
-    "experiment_acdc": "ACDC",
-    "experiment_btcv": "BTCV",
-    "experiment_buid": "BUID",
-    "experiment_hipxray": "HipXRay",
-    "experiment_pandental": "PanDental",
-    "experiment_scd": "SCD",
-    "experiment_scr": "SCR",
-    "experiment_spineweb": "SpineWeb",
-    "experiment_stare": "STARE",
-    "experiment_t1mix": "T1mix",
-    "experiment_wbc": "WBC",
-    "experiment_total_segmentator": "TotalSegmentator",
-}
+from .planb_utils import load_planb_summaries
 
 
 def _read_subset_support_summary(task_root: Path | str) -> pd.DataFrame:
@@ -38,70 +24,25 @@ def _read_subset_support_summary(task_root: Path | str) -> pd.DataFrame:
     return pd.read_csv(csv_path)
 
 
-def _iter_family_commit_paths(
-    repo_root: Path,
-    commit_dir: str,
-    *,
-    procedure: Optional[str] = None,
-    include_families: Optional[List[str]] = None,
-) -> List[tuple[str, Path]]:
-    """Return (family, subset_support_images_summary.csv) for each task.
-
-    Scans experiments/scripts/<procedure>/experiment_*/<task>/<commit_dir>/B/.
-    """
-    scripts_root = repo_root / "experiments" / "scripts"
-    if procedure:
-        scripts_root = scripts_root / procedure
-
-    roots = list(FAMILY_ROOTS.keys())
-    if include_families:
-        allow = {
-            root
-            for root, fam in FAMILY_ROOTS.items()
-            if fam in include_families or root in include_families
-        }
-        roots = [r for r in roots if r in allow]
-
-    paths: List[tuple[str, Path]] = []
-    for root_name in roots:
-        family = FAMILY_ROOTS[root_name]
-        root_path = scripts_root / root_name
-        if not root_path.exists():
-            continue
-        for task_dir in sorted(p for p in root_path.iterdir() if p.is_dir()):
-            csv_path = task_dir / commit_dir / "B" / "subset_support_images_summary.csv"
-            if csv_path.exists():
-                paths.append((family, csv_path))
-    return paths
-
-
 def _gather_family_points(
-    repo_root: Path,
-    commit_dir: str,
-    *,
-    procedure: Optional[str] = None,
-    include_families: Optional[List[str]] = None,
+    df: pd.DataFrame,
 ) -> Dict[str, pd.DataFrame]:
-    """Collect per-(subset, perm) averages per family for a commit.
+    """Collect per-(subset, perm) averages per family.
 
     Returns mapping family -> DataFrame with columns avg_initial, avg_iters, hit_cap.
     """
-    family_to_rows: Dict[str, List[Dict[str, float]]] = {}
-    for family, csv_path in _iter_family_commit_paths(
-        repo_root,
-        commit_dir,
-        procedure=procedure,
-        include_families=include_families,
-    ):
-        df = _read_subset_support_summary(csv_path)
-        required = {"subset_index", "permutation_index", "initial_dice", "iterations_used"}
-        if not required.issubset(df.columns):
-            continue
-        rc = df["reached_cutoff"].astype(str).str.lower().isin(["true", "1", "t", "yes"])
-        df = df.copy()
-        df["_reached"] = rc.astype(float)
-        grp = (
-            df.groupby(["subset_index", "permutation_index"])  # type: ignore[index]
+    required = {"family", "task_id", "subset_index", "permutation_index", "initial_dice", "iterations_used"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {sorted(missing)}")
+
+    family_rows: Dict[str, List[Dict[str, float]]] = {}
+    for (family, _task_id), task_df in df.groupby(["family", "task_id"]):
+        reached_mask = task_df["reached_cutoff"].astype(str).str.lower().isin(["true", "1", "t", "yes"])
+        work_df = task_df.copy()
+        work_df["_reached"] = reached_mask.astype(float)
+        perm_stats = (
+            work_df.groupby(["subset_index", "permutation_index"])
             .agg(
                 avg_initial=("initial_dice", "mean"),
                 avg_iters=("iterations_used", "mean"),
@@ -109,18 +50,20 @@ def _gather_family_points(
             )
             .reset_index()
         )
-        rows = family_to_rows.setdefault(family, [])
-        for _, r in grp.iterrows():
+        family_rows_list = family_rows.setdefault(str(family), [])
+        for _, row in perm_stats.iterrows():
             # Mark points where at least 90% of underlying
             # samples failed to reach the cutoff.
-            hit_cap = float(r["frac_reached"]) <= 0.10 + 1e-6
-            rows.append({
-                "avg_initial": float(r["avg_initial"]),
-                "avg_iters": float(r["avg_iters"]),
-                "hit_cap": hit_cap,
-            })
+            hit_cap = float(row["frac_reached"]) <= 0.10 + 1e-6
+            family_rows_list.append(
+                {
+                    "avg_initial": float(row["avg_initial"]),
+                    "avg_iters": float(row["avg_iters"]),
+                    "hit_cap": hit_cap,
+                }
+            )
 
-    return {fam: pd.DataFrame(rows) for fam, rows in family_to_rows.items() if rows}
+    return {fam: pd.DataFrame(rows) for fam, rows in family_rows.items() if rows}
 
 
 def plot_perm_scatter(
@@ -365,30 +308,47 @@ def main() -> None:
     parser.add_argument("--fit-line", action="store_true", help="Overlay a global least-squares best-fit line")
     parser.add_argument("--r2", action="store_true", help="Show R^2 for the best-fit line")
     parser.add_argument("--family-grid", action="store_true", help="Render a family grid across tasks for a commit dir")
-    parser.add_argument("--commit-dir", type=str, default=None, help="Commit directory name (e.g., commit_pred_90)")
+    parser.add_argument(
+        "--commit-dir",
+        type=str,
+        default=None,
+        help="Ablation folder name under each task (e.g., pretrained_baseline).",
+    )
     parser.add_argument("--procedure", type=str, default="random", help="Procedure subfolder under experiments/scripts")
     parser.add_argument("--family", action="append", type=str, help="Restrict to specific families (e.g., ACDC, BTCV)")
     parser.add_argument("--slope", action="store_true", help="Annotate family grid with best-fit slopes")
+    parser.add_argument(
+        "--policy",
+        type=str,
+        default="random",
+        help="Policy name to use when loading Plan B summaries for family grid.",
+    )
     args = parser.parse_args()
     repo_root = Path(__file__).resolve().parents[2]
 
     if args.family_grid:
         if not args.commit_dir:
             parser.error("--commit-dir is required when using --family-grid")
-        families = args.family if args.family else None
-        family_points = _gather_family_points(
-            repo_root,
-            args.commit_dir,
+        full_df = load_planb_summaries(
+            repo_root=repo_root,
             procedure=args.procedure,
-            include_families=families,
+            ablation=args.commit_dir,
+            dataset=args.family[0] if args.family and len(args.family) == 1 else None,
+            filename="subset_support_images_summary.csv",
         )
+        if args.family:
+            full_df = full_df[full_df["family"].isin(args.family)]
+        df_policy = full_df[full_df["policy_name"] == args.policy]
+        if df_policy.empty:
+            raise SystemExit(f"No rows found for policy '{args.policy}'.")
+        family_points = _gather_family_points(df_policy)
         if not family_points:
             raise SystemExit("No family data found for the requested commit.")
         out_dir = repo_root / "figures"
         out_dir.mkdir(parents=True, exist_ok=True)
         out = plot_family_scatter_grid(
             family_points,
-            commit_label=args.commit_dir,
+            commit_label=f"{args.commit_dir}/{args.policy}",
             output=args.output or (out_dir / f"perm_scatter_{args.commit_dir}_family_grid.png"),
             show_r2=bool(args.r2),
             show_slope=bool(args.slope),

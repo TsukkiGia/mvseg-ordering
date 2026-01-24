@@ -20,6 +20,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from .planb_utils import load_planb_summaries
+from .task_explorer import FAMILY_ROOTS
 
 ABLATION_LABELS = {
     "pretrained_baseline15p": "15 prompts",
@@ -35,9 +37,11 @@ ABLATION_ORDER = [
 ]
 
 
-def _default_root() -> Path:
-    repo_root = Path(__file__).resolve().parents[2]
-    return repo_root / "experiments" / "scripts" / "random_v_MSE" / "experiment_acdc"
+def _resolve_dataset_root(dataset: str) -> str:
+    for root_name, family in FAMILY_ROOTS.items():
+        if dataset == root_name or dataset == family:
+            return root_name
+    return dataset
 
 
 def _compute_subset_spread(df: pd.DataFrame, metric: str) -> pd.DataFrame:
@@ -59,36 +63,22 @@ def _compute_subset_spread(df: pd.DataFrame, metric: str) -> pd.DataFrame:
 
 
 def _load_task_spread(
-    task_dir: Path,
+    df: pd.DataFrame,
     *,
-    ablation: str,
-    policy: str,
     metric: str,
     spread: str,
 ) -> np.ndarray:
-    csv_path = task_dir / ablation / policy / "B" / "subset_support_images_summary.csv"
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Missing CSV: {csv_path}")
-
-    df = pd.read_csv(csv_path)
     required = {"subset_index", "permutation_index", metric}
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"{csv_path} missing columns: {sorted(missing)}")
+        raise ValueError(f"Missing columns: {sorted(missing)}")
 
     stats = _compute_subset_spread(df, metric)
     column = "iqr" if spread == "iqr" else "range_metric"
     values = stats[column].dropna().to_numpy(dtype=float)
     if values.size == 0:
-        raise ValueError(f"No spread values found in {csv_path} for metric '{metric}'.")
+        raise ValueError(f"No spread values found for metric '{metric}'.")
     return values
-
-
-def _iter_task_dirs(root: Path) -> List[Path]:
-    tasks = [p for p in sorted(root.iterdir()) if p.is_dir() and p.name != "figures"]
-    if not tasks:
-        raise FileNotFoundError(f"No task directories found under {root}")
-    return tasks
 
 
 def _plot_box_grid(
@@ -130,10 +120,9 @@ def main() -> None:
     ap.add_argument("--metric", required=True, help="Metric column in subset_support_images_summary.csv.")
     ap.add_argument("--spread", choices=["iqr", "range"], default="iqr", help="Spread unit to plot.")
     ap.add_argument(
-        "--root",
-        type=Path,
-        default=_default_root(),
-        help="Root directory with ACDC task folders (default: experiment_acdc).",
+        "--procedure",
+        default="random_v_MSE",
+        help="Procedure folder under experiments/scripts (default: random_v_MSE).",
     )
     ap.add_argument(
         "--output",
@@ -144,16 +133,23 @@ def main() -> None:
     ap.add_argument("--policy", type=str, default="random", help="Policy folder to read (default: random).")
     args = ap.parse_args()
 
-    task_dirs = _iter_task_dirs(args.root)
     ablations = [a for a in ABLATION_ORDER if a in ABLATION_LABELS]
     data_by_ablation: dict[str, List[float]] = {}
     for ablation in ablations:
         task_means = []
-        for task_dir in task_dirs:
+        full_df = load_planb_summaries(
+            repo_root=Path(__file__).resolve().parents[2],
+            procedure=args.procedure,
+            ablation=ablation,
+            dataset="ACDC",
+            filename="subset_support_images_summary.csv",
+        )
+        df_pol = full_df[full_df["policy_name"] == args.policy]
+        if df_pol.empty:
+            raise SystemExit(f"No rows found for policy '{args.policy}' in ablation '{ablation}'.")
+        for _, task_df in df_pol.groupby("task_id"):
             values = _load_task_spread(
-                task_dir,
-                ablation=ablation,
-                policy=args.policy,
+                task_df,
                 metric=args.metric,
                 spread=args.spread,
             )
@@ -163,7 +159,16 @@ def main() -> None:
     output_path = args.output
     if output_path is None:
         out_name = f"acdc_random_{args.metric}_{args.spread}_task_boxplots.png"
-        output_path = args.root / "figures" / out_name
+        root_name = _resolve_dataset_root(args.dataset)
+        output_path = (
+            Path(__file__).resolve().parents[2]
+            / "experiments"
+            / "scripts"
+            / args.procedure
+            / root_name
+            / "figures"
+            / out_name
+        )
 
     _plot_box_grid(
         data_by_ablation,

@@ -1,0 +1,3 @@
+type: dinov2
+model_name: facebook/dinov2-base
+local_path: null

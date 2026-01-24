@@ -28,6 +28,10 @@ from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outp
 from pylot.experiment.util import eval_config
 from .dataset.tyche_augs import TycheAugs
 from experiments.encoders.multiverseg_encoder import MultiverSegEncoder
+from experiments.encoders.clip import CLIPEncoder
+from experiments.encoders.vit import ViTEncoder
+from experiments.encoders.dinov2 import DinoV2Encoder
+from experiments.encoders.medsam import MedSAMEncoder
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROMPT_CONFIG_DIR = SCRIPT_DIR / "prompt_generator_configs"
 SUBSET_SEED_STRIDE = 1000
@@ -54,6 +58,45 @@ class ExperimentSetup:
     device: str = "cpu"
     task_name: Optional[str] = None
     ordering_config_path: Optional[Path] = None
+
+
+def _build_encoder_from_cfg(
+    encoder_cfg: dict[str, Any],
+    *,
+    device: Optional[str | torch.device] = None,
+) -> torch.nn.Module:
+    enc_type = str(encoder_cfg.get("type", "multiverseg")).lower()
+    if enc_type == "multiverseg":
+        pooling = encoder_cfg.get("pooling", "gap_gmp")
+        encoder = MultiverSegEncoder(pooling=pooling)
+    elif enc_type == "clip":
+        encoder = CLIPEncoder(
+            model_name=encoder_cfg.get("model_name", "ViT-B-32"),
+            pretrained=encoder_cfg.get("pretrained", "openai"),
+        )
+    elif enc_type == "vit":
+        encoder = ViTEncoder(
+            model_name=encoder_cfg.get("model_name", "vit_b_16"),
+            pretrained=bool(encoder_cfg.get("pretrained", True)),
+        )
+    elif enc_type == "dinov2":
+        encoder = DinoV2Encoder(
+            model_name=encoder_cfg.get("model_name", "facebook/dinov2-base"),
+            local_path=encoder_cfg.get("local_path"),
+        )
+    elif enc_type == "medsam":
+        encoder = MedSAMEncoder(
+            model_type=encoder_cfg.get("model_type", "vit_b"),
+            checkpoint_path=encoder_cfg.get("checkpoint_path"),
+            pooling=encoder_cfg.get("pooling", "gap_gmp"),
+        )
+    else:
+        raise ValueError(f"Unknown encoder type: {enc_type}")
+
+    if device is not None:
+        encoder = encoder.to(torch.device(device))
+    encoder.eval()
+    return encoder
 
 
 def _safe_git_commit(repo_root: Path) -> Optional[str]:
@@ -245,19 +288,24 @@ def load_ordering_config(
             name=name,
         )
     if cfg_type == "uncertainty_start":
-        metric = "pairwise_dice"
         k = int(cfg.get("k", 3))
-        reverse = True
         start_selector = cfg.get("start_selector", "first")
+        encoder_cfg_path = cfg.get("encoder_config_path")
+        if not encoder_cfg_path:
+            raise ValueError("encoder_config_path is required for uncertainty_start configs.")
+        encoder_device = cfg.get("encoder_device") or device
+        with open(Path(encoder_cfg_path), "r", encoding="utf-8") as fh:
+            encoder_cfg = yaml.safe_load(fh) or {}
+        encoder = _build_encoder_from_cfg(encoder_cfg, device=encoder_device)
         tyche_seed = cfg.get("tyche_seed", seed)
         tyche_sampler = TycheAugs(seed=tyche_seed)
         return StartSelectedUncertaintyConfig(
             seed=seed,
-            metric=metric,
             k=k,
             tyche_sampler=tyche_sampler,
-            reverse=reverse,
             start_selector=start_selector,
+            encoder=encoder,
+            encoder_device=encoder_device,
             shard_id=shard_id,
             shard_count=shard_count,
             name=name,
@@ -555,14 +603,23 @@ def run_plan_B(setup: ExperimentSetup):
 
     base_dataset = setup.support_dataset
     all_indices = list(base_dataset.get_data_indices())
-    if setup.subset_count is not None:
-        subsets = sample_random_subsets(
-            all_indices, subset_size, setup.subset_count, setup.seed
+    try:
+        if setup.subset_count is not None:
+            subsets = sample_random_subsets(
+                all_indices, subset_size, setup.subset_count, setup.seed
+            )
+        else:
+            subsets = sample_disjoint_subsets(
+                all_indices, subset_size, setup.seed
+            )
+    except ValueError as exc:
+        if "subset_size cannot exceed" not in str(exc):
+            raise
+        print(
+            f"[Plan B] Skipping task '{setup.task_name or '<unknown>'}': "
+            f"{exc} (subset_size={subset_size}, available={len(all_indices)})"
         )
-    else:
-        subsets = sample_disjoint_subsets(
-            all_indices, subset_size, setup.seed
-        )
+        return
 
     for subset_idx, subset_indices in enumerate(subsets):
         subset_dir = plan_b_root / f"Subset_{subset_idx}"
