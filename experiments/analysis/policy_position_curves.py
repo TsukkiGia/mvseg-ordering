@@ -42,6 +42,8 @@ import numpy as np
 import pandas as pd
 
 from .task_explorer import FAMILY_ROOTS, iter_family_task_dirs
+from .planb_utils import load_planb_summaries as load_planb_summaries_all
+from .hierarchical_ci import compute_subset_scores, hierarchical_bootstrap_task_estimates
 
 
 def _t_ci95(mean: float, std: float, n: int) -> tuple[float, float]:
@@ -77,28 +79,6 @@ def _default_outdir(dataset: str, procedure: str, *, ablation:str) -> Path:
     return repo_root / "experiments" / "scripts" / procedure / root_name / "figures" / ablation
 
 
-def iter_planb_policy_csvs(
-    *,
-    repo_root: Path,
-    procedure: str,
-    dataset: str,
-    ablation: str = "pretrained_baseline",
-) -> Iterable[tuple[str, str, str, Path]]:
-    """Yield (family, task_name, policy_dir_name, csv_path)."""
-    for family, task_dir, _ in iter_family_task_dirs(
-        repo_root,
-        procedure=procedure,
-        include_families=[dataset],
-    ):
-        abl_dir = task_dir / ablation
-        if not abl_dir.exists():
-            continue
-        for policy_dir in sorted(p for p in abl_dir.iterdir() if p.is_dir()):
-            csv_path = policy_dir / "B" / "subset_support_images_summary.csv"
-            if csv_path.exists():
-                yield family, task_dir.name, policy_dir.name, csv_path
-
-
 def load_planb_summaries(
     *,
     repo_root: Path,
@@ -106,99 +86,64 @@ def load_planb_summaries(
     dataset: str,
     ablation: str = "pretrained_baseline",
 ) -> pd.DataFrame:
-    frames: list[pd.DataFrame] = []
-    for family, task_name, policy_dir, csv_path in iter_planb_policy_csvs(
+    return load_planb_summaries_all(
         repo_root=repo_root,
         procedure=procedure,
-        dataset=dataset,
         ablation=ablation,
-    ):
-        df = pd.read_csv(csv_path)
-        if df.empty:
-            continue
-        df["task_id"] = f"{family}/{task_name}"
-        df["__policy_dir__"] = policy_dir
-        df["__source__"] = str(csv_path)
-        frames.append(df)
-    if not frames:
-        raise FileNotFoundError(
-            f"No Plan B summary CSVs found for dataset={dataset} procedure={procedure}."
-        )
-    return pd.concat(frames, ignore_index=True)
+        dataset=dataset,
+        filename="subset_support_images_summary.csv",
+    )
 
-
-def compute_task_curves(
+def summarise_across_tasks(
     df: pd.DataFrame,
     *,
     metric: str,
+    n_boot: int = 100,
+    seed: int = 0,
 ) -> pd.DataFrame:
-    """Return per-task curve rows: task_id, policy_name, image_index, task_mean."""
-    required = {"task_id", "policy_name", "subset_index", "image_index", "permutation_index", metric}
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
+    """Return (policy_name, image_index) mean ± 95% hierarchical CI.
 
-    # across permutations within a task's policy's subset
-    per_subset = (
-        df.groupby(["task_id", "policy_name", "subset_index", "image_index"], as_index=False)[metric]
-        .mean()
-        .rename(columns={metric: "subset_mean"})
-    )
-
-    # across subsets
-    per_task = (
-        per_subset.groupby(["task_id", "policy_name", "image_index"], as_index=False)["subset_mean"]
-        .mean()
-        .rename(columns={"subset_mean": "task_mean"})
-    )
-    return per_task
-
-
-def summarise_across_tasks(curves: pd.DataFrame, *, ci: str = "bootstrap", n_boot: int = 5000, seed: int = 0) -> pd.DataFrame:
-    """Return (policy_name, image_index) mean ± 95% CI over tasks.
-
-    ci: "bootstrap" (default) or "t"
+    Uses hierarchical bootstrap across subsets within tasks, then pairs task estimates
+    into dataset-level replicates.
     """
     rows: list[dict[str, float | int | str]] = []
-    for (policy, image_index), sub in curves.groupby(["policy_name", "image_index"]):
-        vals = sub["task_mean"].to_numpy(dtype=float)
-        vals = vals[np.isfinite(vals)]
-        n = int(vals.size)
-        if n == 0:
-            continue
-        mean = float(np.mean(vals))
-        if ci == "t":
-            std = float(np.std(vals, ddof=1)) if n > 1 else float("nan")
-            lo, hi = _t_ci95(mean, std, n)
-        else:
-            lo, hi = _bootstrap_ci(vals, n_boot=n_boot, seed=seed)
-        rows.append(
-            {
-                "policy_name": str(policy),
-                "image_index": int(image_index),
-                "n_tasks": n,
-                "mean": mean,
-                "ci_lo": float(lo),
-                "ci_hi": float(hi),
+    policies = sorted(df["policy_name"].unique())
+    image_indices = sorted({int(x) for x in df["image_index"].unique()})
+
+    for policy in policies:
+        for image_index in image_indices:
+            df_pos = df[(df["policy_name"] == policy) & (df["image_index"] == image_index)]
+            subset_scores = compute_subset_scores(df_pos, metric)
+            subset_scores_by_task = {
+                str(task): grp["subset_mean"].to_numpy(dtype=float)
+                for task, grp in subset_scores.groupby("task_id")
             }
-        )
+            tasks = sorted(subset_scores_by_task.keys())
+            n_tasks = len(tasks)
+            if n_tasks == 0:
+                continue
+            task_boot = hierarchical_bootstrap_task_estimates(
+                subset_scores_by_task,
+                seed=seed,
+            )
+            dataset_boot = np.array(
+                [np.mean([task_boot[t][i] for t in tasks]) for i in range(n_boot)],
+                dtype=float,
+            )
+            mean = float(np.mean(dataset_boot))
+            lo, hi = np.quantile(dataset_boot, [0.025, 0.975])
+
+            rows.append(
+                {
+                    "policy_name": str(policy),
+                    "image_index": int(image_index),
+                    "n_tasks": int(n_tasks),
+                    "mean": float(mean),
+                    "ci_lo": float(lo),
+                    "ci_hi": float(hi),
+                }
+            )
     return pd.DataFrame(rows).sort_values(["policy_name", "image_index"]).reset_index(drop=True)
-
-
-def compute_diff_curves(
-    curves: pd.DataFrame,
-    *,
-    baseline: str,
-) -> pd.DataFrame:
-    """Return per-task diff curve rows: task_id, policy_name, image_index, task_mean (diff)."""
-    base = curves[curves["policy_name"] == baseline][["task_id", "image_index", "task_mean"]].rename(
-        columns={"task_mean": "baseline_task_mean"}
-    )
-    merged = curves.merge(base, on=["task_id", "image_index"], how="inner")
-    merged = merged[merged["policy_name"] != baseline].copy()
-    merged["task_mean"] = merged["task_mean"] - merged["baseline_task_mean"]
-    return merged[["task_id", "policy_name", "image_index", "task_mean"]]
-
 
 def plot_curves(
     summary: pd.DataFrame,
@@ -258,7 +203,7 @@ def main() -> None:
         "--baseline",
         type=str,
         default=None,
-        help="If set, plot policy - baseline diffs per position (baseline is policy_name, e.g., random).",
+        help="(ignored) Kept for backward compatibility; diffs are no longer computed.",
     )
     args = ap.parse_args()
     outdir = _default_outdir(args.dataset, args.procedure, ablation=args.ablation)
@@ -271,18 +216,16 @@ def main() -> None:
         ablation=args.ablation,
     )
 
-    curves = compute_task_curves(df, metric=args.metric)
-    if args.baseline:
-        curves = compute_diff_curves(curves, baseline=args.baseline)
-        y_label = f"{args.metric} (diff vs {args.baseline})"
-        title = f"{args.dataset} – {args.metric} per position (policy - {args.baseline})"
-        stem = f"{args.dataset}_{args.metric}_diff_vs_{args.baseline}_by_image_index"
-    else:
-        y_label = args.metric
-        title = f"{args.dataset} – {args.metric} per position"
-        stem = f"{args.dataset}_{args.metric}_by_image_index"
+    y_label = args.metric
+    title = f"{args.dataset} – {args.metric} per position"
+    stem = f"{args.dataset}_{args.metric}_by_image_index"
 
-    summary = summarise_across_tasks(curves)
+    summary = summarise_across_tasks(
+        df,
+        metric=args.metric,
+        n_boot=100,
+        seed=0,
+    )
     out_csv = outdir / f"{stem}.csv"
     out_png = outdir / f"{stem}.png"
     out_csv.parent.mkdir(parents=True, exist_ok=True)

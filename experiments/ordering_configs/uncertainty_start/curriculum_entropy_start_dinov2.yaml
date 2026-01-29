@@ -1,0 +1,8 @@
+type: uncertainty_start
+name: curriculum_entropy_start_dinov2
+metric: binary_entropy
+k: 3
+reverse: false
+start_selector: closest_to_centroid
+encoder_config_path: experiments/encoder_configs/dinov2_default.yaml
+encoder_device: cpu

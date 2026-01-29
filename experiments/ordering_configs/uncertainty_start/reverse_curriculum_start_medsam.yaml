@@ -1,0 +1,8 @@
+type: uncertainty_start
+name: reverse_curriculum_start_medsam
+metric: pairwise_dice
+k: 3
+reverse: true
+start_selector: closest_to_centroid
+encoder_config_path: experiments/encoder_configs/medsam_default.yaml
+encoder_device: cpu

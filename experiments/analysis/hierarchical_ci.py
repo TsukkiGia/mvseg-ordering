@@ -19,8 +19,6 @@ def aggregate_permutation(
     df: pd.DataFrame,
     metric: str,
     *,
-    image_index_col: str = "image_index",
-    image_id_col: str = "image_id",
     task_col: str = "task_id",
     policy_col: str = "policy_name",
 ) -> pd.DataFrame:
@@ -36,7 +34,7 @@ def aggregate_permutation(
         "permutation_index",
     ]
 
-    required = set(perm_cols) | {metric, image_index_col, image_id_col}
+    required = set(perm_cols) | {metric}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Missing columns: {sorted(missing)}")
@@ -50,8 +48,6 @@ def compute_subset_scores(
     df: pd.DataFrame,
     metric: str,
     *,
-    image_index_col: str = "image_index",
-    image_id_col: str = "image_id",
     task_col: str = "task_id",
     policy_col: str = "policy_name",
 ) -> pd.DataFrame:
@@ -59,8 +55,6 @@ def compute_subset_scores(
     per_perm = aggregate_permutation(
         df,
         metric,
-        image_index_col=image_index_col,
-        image_id_col=image_id_col,
         task_col=task_col,
         policy_col=policy_col,
     )

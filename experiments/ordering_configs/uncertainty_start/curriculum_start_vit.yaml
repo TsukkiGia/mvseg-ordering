@@ -1,0 +1,8 @@
+type: uncertainty_start
+name: curriculum_start_vit
+metric: pairwise_dice
+k: 3
+reverse: false
+start_selector: closest_to_centroid
+encoder_config_path: experiments/encoder_configs/vit_default.yaml
+encoder_device: cpu

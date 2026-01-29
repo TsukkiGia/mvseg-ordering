@@ -1,0 +1,8 @@
+type: uncertainty_start
+name: reverse_curriculum_entropy_start_multiverseg
+metric: binary_entropy
+k: 3
+reverse: true
+start_selector: closest_to_centroid
+encoder_config_path: experiments/encoder_configs/multiverseg_default.yaml
+encoder_device: cpu
