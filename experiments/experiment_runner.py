@@ -27,11 +27,6 @@ from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, Uncertai
 from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
 from .dataset.tyche_augs import TycheAugs
-from experiments.encoders.multiverseg_encoder import MultiverSegEncoder
-from experiments.encoders.clip import CLIPEncoder
-from experiments.encoders.vit import ViTEncoder
-from experiments.encoders.dinov2 import DinoV2Encoder
-from experiments.encoders.medsam import MedSAMEncoder
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROMPT_CONFIG_DIR = SCRIPT_DIR / "prompt_generator_configs"
 SUBSET_SEED_STRIDE = 1000
@@ -60,43 +55,6 @@ class ExperimentSetup:
     ordering_config_path: Optional[Path] = None
 
 
-def _build_encoder_from_cfg(
-    encoder_cfg: dict[str, Any],
-    *,
-    device: Optional[str | torch.device] = None,
-) -> torch.nn.Module:
-    enc_type = str(encoder_cfg.get("type", "multiverseg")).lower()
-    if enc_type == "multiverseg":
-        pooling = encoder_cfg.get("pooling", "gap_gmp")
-        encoder = MultiverSegEncoder(pooling=pooling)
-    elif enc_type == "clip":
-        encoder = CLIPEncoder(
-            model_name=encoder_cfg.get("model_name", "ViT-B-32"),
-            pretrained=encoder_cfg.get("pretrained", "openai"),
-        )
-    elif enc_type == "vit":
-        encoder = ViTEncoder(
-            model_name=encoder_cfg.get("model_name", "vit_b_16"),
-            pretrained=bool(encoder_cfg.get("pretrained", True)),
-        )
-    elif enc_type == "dinov2":
-        encoder = DinoV2Encoder(
-            model_name=encoder_cfg.get("model_name", "facebook/dinov2-base"),
-            local_path=encoder_cfg.get("local_path"),
-        )
-    elif enc_type == "medsam":
-        encoder = MedSAMEncoder(
-            model_type=encoder_cfg.get("model_type", "vit_b"),
-            checkpoint_path=encoder_cfg.get("checkpoint_path"),
-            pooling=encoder_cfg.get("pooling", "gap_gmp"),
-        )
-    else:
-        raise ValueError(f"Unknown encoder type: {enc_type}")
-
-    if device is not None:
-        encoder = encoder.to(torch.device(device))
-    encoder.eval()
-    return encoder
 
 
 def _safe_git_commit(repo_root: Path) -> Optional[str]:
@@ -288,7 +246,9 @@ def load_ordering_config(
             name=name,
         )
     if cfg_type == "uncertainty_start":
+        metric = cfg.get("metric", "pairwise_dice")
         k = int(cfg.get("k", 3))
+        reverse = bool(cfg.get("reverse", False))
         start_selector = cfg.get("start_selector", "first")
         encoder_cfg_path = cfg.get("encoder_config_path")
         if not encoder_cfg_path:
@@ -296,16 +256,17 @@ def load_ordering_config(
         encoder_device = cfg.get("encoder_device") or device
         with open(Path(encoder_cfg_path), "r", encoding="utf-8") as fh:
             encoder_cfg = yaml.safe_load(fh) or {}
-        encoder = _build_encoder_from_cfg(encoder_cfg, device=encoder_device)
         tyche_seed = cfg.get("tyche_seed", seed)
         tyche_sampler = TycheAugs(seed=tyche_seed)
         return StartSelectedUncertaintyConfig(
             seed=seed,
+            metric=metric,
             k=k,
             tyche_sampler=tyche_sampler,
+            reverse=reverse,
             start_selector=start_selector,
-            encoder=encoder,
-            encoder_device=encoder_device,
+            encoder_cfg=encoder_cfg,
+            device=encoder_device,
             shard_id=shard_id,
             shard_count=shard_count,
             name=name,

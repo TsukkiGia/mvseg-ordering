@@ -7,11 +7,7 @@ import torch
 from sklearn.cluster import KMeans
 
 from .base import NonAdaptiveOrderingConfig
-from experiments.encoders.clip import CLIPEncoder
-from experiments.encoders.dinov2 import DinoV2Encoder
-from experiments.encoders.medsam import MedSAMEncoder
-from experiments.encoders.multiverseg_encoder import MultiverSegEncoder
-from experiments.encoders.vit import ViTEncoder
+from experiments.encoders.encoder_utils import build_encoder_from_cfg
 
 def _l2(x): return x / (np.linalg.norm(x, axis=-1, keepdims=True) + 1e-12)
 
@@ -48,39 +44,8 @@ class RepresentativeConfig(NonAdaptiveOrderingConfig):
         if self.encoder is not None:
             return self.encoder
 
-        enc_type = str(self.encoder_cfg.get("type", "multiverseg")).lower()
-        if enc_type == "multiverseg":
-            pooling = self.encoder_cfg.get("pooling", "gap_gmp")
-            encoder = MultiverSegEncoder(pooling=pooling)
-        elif enc_type == "clip":
-            encoder = CLIPEncoder(
-                model_name=self.encoder_cfg.get("model_name", "ViT-B-32"),
-                pretrained=self.encoder_cfg.get("pretrained", "openai"),
-            )
-        elif enc_type == "vit":
-            encoder = ViTEncoder(
-                model_name=self.encoder_cfg.get("model_name", "vit_b_16"),
-                pretrained=bool(self.encoder_cfg.get("pretrained", True)),
-            )
-        elif enc_type == "dinov2":
-            encoder = DinoV2Encoder(
-                model_name=self.encoder_cfg.get("model_name", "facebook/dinov2-base"),
-                local_path=self.encoder_cfg.get("local_path"),
-            )
-        elif enc_type == "medsam":
-            encoder = MedSAMEncoder(
-                model_type=self.encoder_cfg.get("model_type", "vit_b"),
-                checkpoint_path=self.encoder_cfg.get("checkpoint_path"),
-                image_size=int(self.encoder_cfg.get("image_size", 1024)),
-                pooling=self.encoder_cfg.get("pooling", "gap_gmp"),
-            )
-        else:
-            raise ValueError(f"Unknown encoder type: {enc_type}")
-
-        encoder = encoder.to(self.device)
-        encoder.eval()
-        self.encoder = encoder
-        return encoder
+        self.encoder = build_encoder_from_cfg(self.encoder_cfg, device=self.device)
+        return self.encoder
 
     def _kmeans(self, data: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
         """K-means via scikit-learn (k-means++ init, multiple inits)."""

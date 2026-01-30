@@ -33,15 +33,7 @@ class MedSAMEncoder(BaseEncoder):
         if self.model_type not in sam_model_registry:
             raise ValueError(f"Unknown SAM model_type: {self.model_type}")
 
-        if torch.cuda.is_available():
-            self.model = sam_model_registry[self.model_type](checkpoint=self.checkpoint_path)
-        else:
-            # Load checkpoint on CPU explicitly to avoid CUDA deserialization errors.
-            self.model = sam_model_registry[self.model_type](checkpoint=None)
-            state = torch.load(self.checkpoint_path, map_location=torch.device("cpu"))
-            if isinstance(state, dict) and "state_dict" in state:
-                state = state["state_dict"]
-            self.model.load_state_dict(state)
+        self.model = sam_model_registry[self.model_type](checkpoint=self.checkpoint_path)
         self.model.eval()
 
     @torch.no_grad()
