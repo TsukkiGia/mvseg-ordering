@@ -1,0 +1,39 @@
+click_generator:
+  _class: scribbleprompt.interactions.prompt_generator.FlexiblePromptEmbed
+  click_embed:
+    _fn: scribbleprompt.interactions.embed.click_onehot
+  init_pos_click_generators:
+  - _class: scribbleprompt.interactions.clicks.ComponentCenterClick
+    train: false
+  init_neg_click_generators:
+  - _class: scribbleprompt.interactions.clicks.ComponentCenterClick
+    train: false
+  correction_click_generators:
+  - _class: scribbleprompt.interactions.clicks.ComponentCenterClick
+    train: false
+  init_pos_click: 1
+  init_neg_click: 0
+  correction_clicks: 1
+  prob_bbox: 0.0
+  prob_click: 1.0
+  from_logits: true
+  
+random_warm_start:
+  _class: scribbleprompt.interactions.prompt_generator.FlexiblePromptEmbed
+  click_embed:
+    _fn: scribbleprompt.interactions.embed.click_onehot
+  init_pos_click_generators:
+      - _class: scribbleprompt.interactions.clicks.RandomClick
+        train: False
+  init_neg_click_generators:
+      - _class: scribbleprompt.interactions.clicks.RandomClick
+        train: False
+  correction_click_generators:
+    - _class: scribbleprompt.interactions.clicks.ComponentCenterClick
+      train: False
+  init_pos_click: 3
+  init_neg_click: 3
+  correction_clicks: 1
+  prob_bbox: 0.0
+  prob_click: 1.0
+  from_logits: True

@@ -435,6 +435,8 @@ def run_shard_worker(shard_dir: str, setup: ExperimentSetup, shard_id: int, orde
         ordering_config.device = torch.device(shard_device)
         if hasattr(ordering_config, "encoder") and getattr(ordering_config, "encoder") is not None:
             ordering_config.encoder = ordering_config.encoder.to(ordering_config.device).eval()
+    if hasattr(ordering_config, "log_dir"):
+        ordering_config.log_dir = shard_path / "logs"
 
     experiment = MVSegOrderingExperiment(
         support_dataset=setup.support_dataset,

@@ -1,0 +1,33 @@
+combined_prompt_generator:
+  _class: scribbleprompt.interactions.prompt_generator.FlexiblePromptEmbed
+bbox_embed:
+  _fn: scribbleprompt.interactions.embed.bbox_shaded
+box_generators:
+- _class: scribbleprompt.interactions.boxes.UniformBBox 
+click_embed:
+  _fn: scribbleprompt.interactions.embed.click_onehot
+init_neg_click_generators:
+- _class: scribbleprompt.interactions.clicks.RandomClick
+- _class: scribbleprompt.interactions.clicks.RandBorderClick
+init_pos_click_generators:
+- _class: scribbleprompt.interactions.clicks.RandomClick
+- _class: scribbleprompt.interactions.clicks.ComponentCenterClick
+- _class: scribbleprompt.interactions.clicks.RandBorderClick
+scribble_generators:
+- _class: scribbleprompt.interactions.scribbles.LineScribble
+- _class: scribbleprompt.interactions.scribbles.CenterlineScribble
+- _class: scribbleprompt.interactions.scribbles.ContourScribble
+correction_click_generators:
+- _class: scribbleprompt.interactions.clicks.RandomClick
+- _class: scribbleprompt.interactions.clicks.ComponentCenterClick
+- _class: scribbleprompt.interactions.clicks.RandBorderClick
+correction_clicks: [1,3]
+correction_scribbles: [1,3]
+init_pos_click: [1,3]
+init_neg_click: [0,3]
+init_neg_scribble: [0,3]
+init_pos_scribble: [1,3]
+prob_bbox: 0.5
+prob_click: 0.5
+prob_scribble: 0.5
+from_logits: true

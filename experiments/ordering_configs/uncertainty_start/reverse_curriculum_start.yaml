@@ -1,0 +1,8 @@
+type: uncertainty_start
+name: reverse_curriculum_start
+metric: pairwise_dice
+k: 3
+reverse: true
+start_selector: first
+encoder_config_path: experiments/encoder_configs/vit_default.yaml
+encoder_device: cpu

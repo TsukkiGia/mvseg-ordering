@@ -16,8 +16,9 @@ class CLIPEncoder(BaseEncoder):
     def __post_init__(self) -> None:
         super().__init__()
         self.model, _, preprocess = open_clip.create_model_and_transforms(
-        model_name=self.model_name,
-        pretrained=self.pretrained,
+            model_name=self.model_name,
+            pretrained=self.pretrained,
+            force_quick_gelu=True,
         )
         self.preprocess = build_tensor_preprocess(preprocess.transforms)
         self.model.eval()

@@ -1,0 +1,13 @@
+centerline_scribble_generator:
+  _class: scribbleprompt.interactions.prompt_generator.FlexiblePromptEmbed
+train: False
+scribble_generators:
+  - _class: scribbleprompt.interactions.scribbles.CenterlineScribble
+    max_pixels: 128
+init_pos_scribble: 1
+init_neg_scribble: 1
+correction_scribbles: 1
+prob_bbox: 0.0
+prob_click: 0.0
+prob_scribble: 1.0
+from_logits: True
