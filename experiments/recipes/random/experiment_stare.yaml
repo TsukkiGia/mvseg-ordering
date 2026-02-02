@@ -1,5 +1,8 @@
 version: 1
 
+# Run:
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random/experiment_stare.yaml --run
+
 # Defaults applied to all experiments unless overridden per-entry.
 defaults:
   prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
@@ -73,3 +76,11 @@ experiments:
     mega_dataset_size: 15
     script_dir: experiments/scripts/random/experiment_stare/commit_pred_97
     plan: [A]
+
+
+  - name: pretrained_baseline_random_v2
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v2/experiment_stare/pretrained_baseline
+    plan_b_num_subsets: 10
+    plan: [B]

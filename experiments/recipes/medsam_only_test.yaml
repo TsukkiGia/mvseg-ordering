@@ -1,0 +1,34 @@
+version: 1
+
+# Minimal recipe to test the MedSAM-based representative ordering policy.
+# Dry run:
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/medsam_only_test.yaml
+# Run:
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/medsam_only_test.yaml --run --only-plan B
+
+defaults:
+  prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
+  prompt_config_key: click_generator
+  prompt_iterations: 20
+  plan_b_subset_size: 5
+  plan_b_num_subsets: 2
+  use_mega_dataset: true
+  mega_dataset_name: BUID
+  mega_dataset_split: train
+
+  # Runtime
+  no_visualize: true
+  device: cuda
+  shards: 1
+  experiment_seed: 23
+
+experiments:
+  - name: pretrained_baseline_medsam_only
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    script_dir: experiments/scripts/medsam_only/experiment_acdc/pretrained_baseline
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_start_medsam.yaml
+      - ordering_config_path: experiments/ordering_configs/representative_medsam.yaml
+      
