@@ -1,11 +1,11 @@
 bbox_prompt_generator:
   _class: scribbleprompt.interactions.prompt_generator.FlexiblePromptEmbed
-bbox_embed:
-  _fn: scribbleprompt.interactions.embed.bbox_shaded
-box_generators:
-  - _class: scribbleprompt.interactions.boxes.UniformBBox
-prob_bbox: 1.0
-prob_click: 0.0
-prob_scribble: 0.0
-from_logits: True
-single_correction_type: False
+  bbox_embed:
+    _fn: scribbleprompt.interactions.embed.bbox_shaded
+  box_generators:
+    - _class: scribbleprompt.interactions.boxes.UniformBBox
+  prob_bbox: 1.0
+  prob_click: 0.0
+  prob_scribble: 0.0
+  from_logits: True
+  single_correction_type: False

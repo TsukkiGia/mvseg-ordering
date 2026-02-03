@@ -1,0 +1,34 @@
+version: 1
+
+# Minimal Plan B test recipe for BUID (1 subset).
+# Run:
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/fixed_uncertainty/buid_fixed_uncertainty_1subset.yaml --only-plan B --run
+# Extend later by increasing plan_b_num_subsets and re-running with extend_plan_b.
+
+defaults:
+  prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
+  prompt_config_key: click_generator
+  prompt_iterations: 20
+  plan_b_subset_size: 10
+  use_mega_dataset: true
+  mega_dataset_name: BUID
+  mega_dataset_split: train
+
+  # Runtime
+  no_visualize: true
+  device: cuda
+  shards: 4
+  experiment_seed: 23
+
+  # Allow in-place extension of Plan B runs
+  extend_plan_b: true
+
+experiments:
+  - name: buid_fixed_uncertainty_one_subset
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    script_dir: experiments/scripts/fixed_uncertainty/experiment_buid_test/curriculum
+    plan_b_num_subsets: 2
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_start_vit.yaml
