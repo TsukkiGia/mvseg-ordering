@@ -413,6 +413,56 @@ def merge_shard_results(target_dir: Path, shard_dirs: Sequence[Path]) -> None:
             merged.to_csv(target_results_dir / filename, index=False)
 
 
+def _list_existing_subset_indices(plan_b_root: Path) -> set[int]:
+    indices: set[int] = set()
+    summary_path = plan_b_root / "subset_support_images_summary.csv"
+    if summary_path.exists():
+        try:
+            df = pd.read_csv(summary_path, usecols=["subset_index"])
+            if not df.empty:
+                for val in df["subset_index"].dropna().unique().tolist():
+                    try:
+                        indices.add(int(val))
+                    except (TypeError, ValueError):
+                        continue
+        except Exception:
+            pass
+    return indices
+
+
+def _append_planb_log(
+    *,
+    plan_b_root: Path,
+    setup: ExperimentSetup,
+    existing_indices: set[int],
+    total_planned: int,
+    executed_indices: list[int],
+) -> None:
+    plan_b_root.mkdir(parents=True, exist_ok=True)
+    log_path = plan_b_root / "append_log.jsonl"
+    ts = datetime.now(timezone.utc).isoformat()
+    record: dict[str, Any] = {
+        "timestamp_utc": ts,
+        "seed": setup.seed,
+        "subset_size": setup.subset_size,
+        "subset_count": setup.subset_count,
+        "planned_subsets": int(total_planned),
+        "existing_subsets": len(existing_indices),
+        "new_subsets": len(executed_indices),
+    }
+    if len(executed_indices) <= 200:
+        record["executed_indices"] = executed_indices
+    else:
+        record["executed_indices"] = {
+            "count": len(executed_indices),
+            "min": int(min(executed_indices)),
+            "max": int(max(executed_indices)),
+        }
+    with log_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, sort_keys=True))
+        fh.write("\n")
+
+
 def run_shard_worker(shard_dir: str, setup: ExperimentSetup, shard_id: int, ordering_config: OrderingConfig) -> None:
     shard_path = Path(shard_dir)
     shard_path.mkdir(parents=True, exist_ok=True)
@@ -563,6 +613,7 @@ def run_plan_B(setup: ExperimentSetup):
     subset_size = setup.subset_size
     plan_b_root = setup.script_dir / "B"
     plan_b_root.mkdir(parents=True, exist_ok=True)
+    existing_indices = _list_existing_subset_indices(plan_b_root)
 
     base_dataset = setup.support_dataset
     all_indices = list(base_dataset.get_data_indices())
@@ -584,7 +635,10 @@ def run_plan_B(setup: ExperimentSetup):
         )
         return
 
+    executed_indices: list[int] = []
     for subset_idx, subset_indices in enumerate(subsets):
+        if subset_idx in existing_indices:
+            continue
         subset_dir = plan_b_root / f"Subset_{subset_idx}"
         subset_dir.mkdir(parents=True, exist_ok=True)
         subset_dataset = _SubsetDataset(base_dataset, subset_indices)
@@ -596,6 +650,14 @@ def run_plan_B(setup: ExperimentSetup):
             subset_size=None,
         )
         run_single_experiment(subset_setup)
+        executed_indices.append(subset_idx)
+    _append_planb_log(
+        plan_b_root=plan_b_root,
+        setup=setup,
+        existing_indices=existing_indices,
+        total_planned=len(subsets),
+        executed_indices=executed_indices,
+    )
     extra_columns = {}
     if setup.task_name:
         extra_columns["task_name"] = setup.task_name

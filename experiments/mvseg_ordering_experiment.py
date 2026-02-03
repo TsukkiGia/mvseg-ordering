@@ -27,7 +27,7 @@ from .score.dice_score import dice_score
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from scribbleprompt.analysis.plot import show_points
+from scribbleprompt.analysis.plot import show_points, show_boxes, show_scribbles
 from typing import Union, Dict
 from experiments.dataset.tyche_augs import apply_tyche_augs
 from .ordering import (
@@ -368,6 +368,11 @@ class MVSegOrderingExperiment():
         point_labels = annotations.get('point_labels')
         if point_coords is not None and point_labels is not None:
             show_points(point_coords.detach().cpu(), point_labels.detach().cpu(), ax=ax[0])
+        if 'scribble' in annotations:
+            # thresholding scribbles for visualization
+            show_scribbles(annotations['scribble'].detach().cpu() > 0, ax=ax[0])
+        if 'box' in annotations:
+            show_boxes(annotations['box'].detach().cpu(), ax=ax[0])
         figure_dir = seed_folder_dir / "Prediction Figures"
         figure_dir.mkdir(exist_ok=True)
         fig.savefig(figure_dir / f"Image_{image_index}_prediction_{iteration}.png")
