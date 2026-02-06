@@ -24,7 +24,7 @@ experiments:
   - name: pretrained_baseline_fixed_curriculum
     pretrained_model_score_goal: true
     commit_ground_truth: false
-    script_dir: experiments/scripts/fixed_uncertainty/experiment_btcv/pretrained_baseline/curriculum
+    script_dir: experiments/scripts/fixed_uncertainty/experiment_btcv/curriculum
     plan_b_num_subsets: 10
     plan: [B]
     policies:
@@ -38,7 +38,7 @@ experiments:
   - name: pretrained_baseline_fixed_curriculum_entropy
     pretrained_model_score_goal: true
     commit_ground_truth: false
-    script_dir: experiments/scripts/fixed_uncertainty/experiment_btcv/pretrained_baseline/curriculum_entropy
+    script_dir: experiments/scripts/fixed_uncertainty/experiment_btcv/curriculum_entropy
     plan_b_num_subsets: 10
     plan: [B]
     policies:
@@ -52,7 +52,7 @@ experiments:
   - name: pretrained_baseline_fixed_reverse_curriculum
     pretrained_model_score_goal: true
     commit_ground_truth: false
-    script_dir: experiments/scripts/fixed_uncertainty/experiment_btcv/pretrained_baseline/reverse_curriculum
+    script_dir: experiments/scripts/fixed_uncertainty/experiment_btcv/reverse_curriculum
     plan_b_num_subsets: 10
     plan: [B]
     policies:
@@ -66,7 +66,7 @@ experiments:
   - name: pretrained_baseline_fixed_reverse_curriculum_entropy
     pretrained_model_score_goal: true
     commit_ground_truth: false
-    script_dir: experiments/scripts/fixed_uncertainty/experiment_btcv/pretrained_baseline/reverse_curriculum_entropy
+    script_dir: experiments/scripts/fixed_uncertainty/experiment_btcv/reverse_curriculum_entropy
     plan_b_num_subsets: 10
     plan: [B]
     policies:
