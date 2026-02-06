@@ -18,8 +18,10 @@ defaults:
   eval_fraction: 0.33
   eval_checkpoints: [1, 2, 4, 8, 10]
   plan_b_subset_size: 10
+  plan_b_num_subsets: 10
 
 experiments:
+# exploration on 90, 95, 97 Dice to see effect on spread. Plan A
   - name: label_90
     dice_cutoff: 0.9
     commit_ground_truth: true
@@ -62,6 +64,7 @@ experiments:
     mega_dataset_size: 15
     plan: [A]
 
+# exploration on 50 iters to see effect on spread. Plan A
   - name: pred_97_iter50
     dice_cutoff: 0.97
     prompt_iterations: 50
@@ -70,6 +73,7 @@ experiments:
     mega_dataset_size: 15
     plan: [A]
 
+# exploration on 90, 95, 97 Dice to see effect on spread. Plan B
   - name: label_90
     dice_cutoff: 0.9
     commit_ground_truth: true
@@ -112,6 +116,7 @@ experiments:
     mega_dataset_size: 100
     plan: [B]
 
+# exploration on 50 iters to see effect on spread. Plan B
   - name: pred_97_iter50
     dice_cutoff: 0.97
     prompt_iterations: 50
@@ -120,10 +125,33 @@ experiments:
     mega_dataset_size: 100
     plan: [B]
 
-
+# FINAL Results: 5, 20 prompt version with label and pred committing
   - name: pretrained_baseline_random_v2
     pretrained_model_score_goal: true
     commit_ground_truth: false
     script_dir: experiments/scripts/random_v2/experiment_acdc/pretrained_baseline
     plan_b_num_subsets: 10
+    plan: [B]
+  
+  - name: pretrained_baseline_random_v2_5
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v2/experiment_acdc/pretrained_baseline5
+    plan_b_num_subsets: 10
+    prompt_iterations: 5
+    plan: [B]
+
+  - name: pretrained_baseline_random_v2_gt
+    pretrained_model_score_goal: true
+    commit_ground_truth: true
+    script_dir: experiments/scripts/random_v2/experiment_acdc/pretrained_baseline_gt
+    plan_b_num_subsets: 10
+    plan: [B]
+  
+  - name: pretrained_baseline_random_v2_5
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v2/experiment_acdc/pretrained_baseline5_gt
+    plan_b_num_subsets: 10
+    prompt_iterations: 5
     plan: [B]
