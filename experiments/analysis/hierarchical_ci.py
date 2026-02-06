@@ -118,6 +118,67 @@ def dataset_bootstrap_stats(
     return dataset_boot, mean, float(lo), float(hi)
 
 
+def hierarchical_bootstrap_curve_2d(
+    subset_curves_by_task: Dict[str, pd.DataFrame],
+    *,
+    n_boot: int = 100,
+    seed: int = 0,
+) -> dict[str, object]:
+    """Bootstrap mean curve with task hierarchy.
+
+    Steps:
+      - Resample subset curves within each task (with replacement).
+      - Average within each task to get one task-level curve.
+      - Average task curves to get a dataset-level curve.
+    """
+    tasks = sorted(subset_curves_by_task.keys())
+    if not tasks:
+        raise ValueError("No task curves provided for bootstrapping.")
+
+    # Use shared iterations to keep task curves aligned.
+    iteration_sets = [set(df.index) for df in subset_curves_by_task.values()]
+    iterations = sorted(set.intersection(*iteration_sets)) if iteration_sets else []
+    if not iterations:
+        raise ValueError("No shared iterations found across task curves.")
+
+    # 1) Bootstrap task-level curves (resample subsets within each task).
+    task_boot: Dict[str, list[np.ndarray]] = {t: [] for t in tasks}
+    for i in range(n_boot):
+        for task in tasks:
+            rng = np.random.default_rng(seed + i)
+            table = subset_curves_by_task[task]
+            cols = list(table.columns)
+            if not cols:
+                continue
+            sample_cols = rng.choice(cols, size=len(cols), replace=True)
+            task_curve = table.loc[iterations, sample_cols].to_numpy().mean(axis=1)
+            task_boot[task].append(task_curve)
+
+    # 2) Combine task curves into dataset-level bootstrap curves.
+    n_boot_effective = min((len(task_boot[t]) for t in tasks), default=0)
+    if n_boot_effective == 0:
+        raise ValueError("Bootstrap failed to produce any curves.")
+
+    boot_curves = []
+    for i in range(n_boot_effective):
+        task_curves = [task_boot[t][i] for t in tasks]
+        boot_curves.append(np.mean(task_curves, axis=0))
+    boot_arr = np.vstack(boot_curves)
+
+    # 3) Summarize mean + CI over bootstrap replicates.
+    mean_curve = pd.Series(boot_arr.mean(axis=0), index=iterations)
+    lo_curve = pd.Series(np.quantile(boot_arr, 0.025, axis=0), index=iterations)
+    hi_curve = pd.Series(np.quantile(boot_arr, 0.975, axis=0), index=iterations)
+
+    return {
+        "iterations": iterations,
+        "boot_curves": boot_arr,
+        "mean": mean_curve,
+        "ci_lo": lo_curve,
+        "ci_hi": hi_curve,
+        "n_boot": n_boot_effective,
+    }
+
 def hierarchical_bootstrap_dataset(
     df: pd.DataFrame,
     metric: str,
