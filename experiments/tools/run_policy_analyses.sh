@@ -4,7 +4,7 @@
 # Usage:
 #   experiments/tools/run_policy_analyses.sh <DATASET> <PROCEDURE> <ABLATION> <BASELINE>
 # Example:
-#   /data/ddmg/mvseg-ordering/experiments/tools/run_policy_analyses.sh WBC random_vs_uncertainty pretrained_baseline random
+#   /data/ddmg/mvseg-ordering/experiments/tools/run_policy_analyses.sh ACDC random_v_MSE_v2 pretrained_baseline random
 
 set -euo pipefail
 
