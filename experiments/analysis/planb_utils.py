@@ -102,3 +102,41 @@ def load_planb_summaries(
         )
     return pd.concat(frames, ignore_index=True)
 
+
+def iter_planb_subset_dirs(
+    *,
+    repo_root: Path,
+    procedure: str,
+    ablation: str,
+    policy: str,
+    include_families: Optional[Iterable[str]] = None,
+    marker_filename: str = "subset_support_images_summary.csv",
+    allow_root_fallback: bool = True,
+) -> Iterable[dict[str, object]]:
+    """Yield metadata for Plan B subset directories under a policy."""
+    for meta in iter_planb_policy_files(
+        repo_root=repo_root,
+        procedure=procedure,
+        ablation=ablation,
+        filename=marker_filename,
+        include_families=include_families,
+        allow_root_fallback=allow_root_fallback,
+    ):
+        if meta["policy_name"] != policy:
+            continue
+        b_root = Path(meta["csv_path"]).parent
+        subset_dirs = sorted(
+            [p for p in b_root.glob("Subset_*") if p.is_dir()],
+            key=lambda p: int(p.name.split("_")[-1]),
+        )
+        for subset_dir in subset_dirs:
+            subset_idx = int(subset_dir.name.split("_")[-1])
+            yield {
+                "family": meta["family"],
+                "task_id": meta["task_id"],
+                "task_name": meta["task_name"],
+                "policy_name": meta["policy_name"],
+                "subset_dir": subset_dir,
+                "subset_index": subset_idx,
+                "b_root": b_root,
+            }
