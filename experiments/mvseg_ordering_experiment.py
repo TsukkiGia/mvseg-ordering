@@ -368,10 +368,10 @@ class MVSegOrderingExperiment():
         point_labels = annotations.get('point_labels')
         if point_coords is not None and point_labels is not None:
             show_points(point_coords.detach().cpu(), point_labels.detach().cpu(), ax=ax[0])
-        if 'scribble' in annotations:
+        if 'scribble' in annotations and annotations['scribble'] is not None:
             # thresholding scribbles for visualization
             show_scribbles(annotations['scribble'].detach().cpu() > 0, ax=ax[0])
-        if 'box' in annotations:
+        if 'box' in annotations and annotations['box'] is not None:
             show_boxes(annotations['box'].detach().cpu(), ax=ax[0])
         figure_dir = seed_folder_dir / "Prediction Figures"
         figure_dir.mkdir(exist_ok=True)
