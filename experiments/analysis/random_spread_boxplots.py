@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Box plots of mean Plan B subset spread per ACDC task for the random policy.
+"""Box plots of mean Plan B subset spread per dataset task for the random policy.
 
 For each task and ablation, compute subset-level spread across permutations using
 the same aggregation as experiments.analysis.results_plot.compute_subset_permutation_metric.
@@ -7,7 +7,7 @@ Then average those subset spreads within each task, and plot a box (over tasks)
 in a 2x2 grid over ablations.
 
 Example:
-  python -m experiments.analysis.acdc_random_spread_boxplots --metric iterations_used --spread iqr
+  python -m experiments.analysis.random_spread_boxplots --metric iterations_used --spread iqr
 """
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ ABLATION_ORDER = [
     "pretrained_baseline15p",
     "pretrained_baseline",
 ]
-
 
 def _resolve_dataset_root(dataset: str) -> str:
     for root_name, family in FAMILY_ROOTS.items():
@@ -106,7 +105,7 @@ def _plot_box_grid(
     for ax in axes[len(data_by_ablation):]:
         ax.axis("off")
 
-    fig.suptitle("ACDC random policy mean subset spread by task", fontsize=14)
+    fig.suptitle("Random policy mean subset spread by task", fontsize=14)
     fig.tight_layout(rect=[0, 0.02, 1, 0.95])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=200)
@@ -115,7 +114,7 @@ def _plot_box_grid(
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Box plots of mean random-policy subset spread per ACDC task across ablations."
+        description="Box plots of mean random-policy subset spread per dataset task across ablations."
     )
     ap.add_argument("--metric", required=True, help="Metric column in subset_support_images_summary.csv.")
     ap.add_argument("--spread", choices=["iqr", "range"], default="iqr", help="Spread unit to plot.")
@@ -131,6 +130,12 @@ def main() -> None:
         help="Optional output path for the figure.",
     )
     ap.add_argument("--policy", type=str, default="random", help="Policy folder to read (default: random).")
+    ap.add_argument(
+        "--dataset",
+        type=str,
+        default="ACDC",
+        help="Dataset family to load (e.g., ACDC, BTCV, BUID, WBC).",
+    )
     args = ap.parse_args()
 
     ablations = [a for a in ABLATION_ORDER if a in ABLATION_LABELS]
@@ -141,7 +146,7 @@ def main() -> None:
             repo_root=Path(__file__).resolve().parents[2],
             procedure=args.procedure,
             ablation=ablation,
-            dataset="ACDC",
+            dataset=args.dataset,
             filename="subset_support_images_summary.csv",
         )
         df_pol = full_df[full_df["policy_name"] == args.policy]
@@ -158,7 +163,7 @@ def main() -> None:
 
     output_path = args.output
     if output_path is None:
-        out_name = f"acdc_random_{args.metric}_{args.spread}_task_boxplots.png"
+        out_name = f"{args.dataset.lower()}_random_{args.metric}_{args.spread}_task_boxplots.png"
         root_name = _resolve_dataset_root(args.dataset)
         output_path = (
             Path(__file__).resolve().parents[2]
