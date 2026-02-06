@@ -289,6 +289,11 @@ def main() -> None:
     ap.add_argument("--config", type=Path, required=True, help="YAML file path")
     ap.add_argument("--run", action="store_true", help="Execute experiments (default: print only)")
     ap.add_argument(
+        "--extend-plan-b",
+        action="store_true",
+        help="Allow running Plan B even if subset summaries already exist.",
+    )
+    ap.add_argument(
         "--only-plan",
         choices=["A", "B"],
         default=None,
@@ -300,6 +305,7 @@ def main() -> None:
     experiments = data.get("experiments", [])
     if not experiments:
         raise SystemExit("No experiments found in config")
+    yaml_extend_plan_b = bool(defaults.get("extend_plan_b", False))
 
     setups: list[tuple[str, ExperimentSetup]] = []
     dataset_split = str(defaults.get("mega_dataset_split", "train")).strip()
@@ -362,7 +368,7 @@ def main() -> None:
                         marker = Path(policy_cfg["script_dir"]) / "A" / "results" / "support_images_summary.csv"
                     else:
                         marker = Path(policy_cfg["script_dir"]) / "B" / "subset_support_images_summary.csv"
-                    if marker.exists():
+                    if marker.exists() and not (plan == "B" and yaml_extend_plan_b):
                         tag_display = f"{exp.get('name','exp')}:{plan}"
                         if tag_suffix:
                             tag_display += f":{tag_suffix}"
