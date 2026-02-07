@@ -227,3 +227,78 @@ def hierarchical_bootstrap_dataset(
         "n_boot": n_boot,
         "n_samples": n_samples,
     }
+
+def compute_subset_stat(
+    df: pd.DataFrame,
+    metric: str,
+    *,
+    reducer,
+    stat_name: str = "subset_stat",
+    task_col: str = "task_id",
+    policy_col: str = "policy_name",
+) -> pd.DataFrame:
+    """Return subset-level stats per (task, policy, subset).
+
+    reducer: function that takes a 1D array-like of permutation scores.
+    """
+    per_perm = aggregate_permutation(
+        df,
+        metric,
+        task_col=task_col,
+        policy_col=policy_col,
+    )
+    subset_cols = ["subset_index", task_col, policy_col]
+    per_subset = (
+        per_perm.groupby(subset_cols, as_index=False)[metric]
+        .apply(lambda s: reducer(s.to_numpy(dtype=float)))
+        .rename(columns={metric: stat_name})
+    )
+    return per_subset
+
+def hierarchical_bootstrap_dataset_stat(
+    df: pd.DataFrame,
+    metric: str,
+    policy_name: str,
+    *,
+    reducer,
+    stat_name: str = "subset_stat",
+    n_boot: int = 100,
+    seed: int = 0,
+    task_col: str = "task_id",
+    policy_col: str = "policy_name",
+) -> dict[str, object]:
+    """Return dataset-level bootstrap for arbitrary subset-level stats."""
+
+    df = df[df[policy_col] == policy_name]
+
+    per_subset = compute_subset_stat(
+        df,
+        metric,
+        reducer=reducer,
+        stat_name=stat_name,
+        task_col=task_col,
+        policy_col=policy_col,
+    )
+
+    subset_scores_by_task = {
+        str(task): grp[stat_name].to_numpy(dtype=float)
+        for task, grp in per_subset.groupby(task_col)
+    }
+
+    task_boot = hierarchical_bootstrap_task_estimates(
+        subset_scores_by_task,
+        n_boot=n_boot,
+        seed=seed,
+    )
+
+    dataset_boot, mean, lo, hi = dataset_bootstrap_stats(task_boot, alpha=0.05)
+
+    return {
+        "dataset_bootstrap": dataset_boot,
+        "task_bootstrap": task_boot,
+        "mean": mean,
+        "ci_lo": lo,
+        "ci_hi": hi,
+        "n_boot": n_boot,
+        "stat_name": stat_name,
+    }
