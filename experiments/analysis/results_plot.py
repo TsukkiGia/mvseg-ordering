@@ -13,6 +13,7 @@ import seaborn as sns
 from scipy import stats
 from matplotlib.ticker import MultipleLocator
 
+from .planb_utils import load_planb_summaries
 
 ImageFillStyle = Literal["iqr", "range"]
 PermutationReducer = Literal["mean", "sum"]
@@ -898,10 +899,41 @@ if __name__ == "__main__":
         default=None,
         help="Path to Plan B root directory (contains Subset_* folders)",
     )
+    parser.add_argument(
+        "--procedure",
+        type=str,
+        default=None,
+        help="Procedure under experiments/scripts (used with --dataset/--task/--policy).",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        help="Dataset family (e.g., ACDC) to locate Plan B summaries.",
+    )
+    parser.add_argument(
+        "--ablation",
+        type=str,
+        default="pretrained_baseline",
+        help="Ablation folder to locate Plan B summaries.",
+    )
+    parser.add_argument(
+        "--task",
+        type=str,
+        default=None,
+        help="Task name to locate Plan B summaries.",
+    )
+    parser.add_argument(
+        "--policy",
+        type=str,
+        default=None,
+        help="Policy name to locate Plan B summaries (e.g., random).",
+    )
     args = parser.parse_args()
 
     if args.plan_a is None and args.plan_b is None:
-        parser.error("Provide at least one of --plan-a or --plan-b")
+        if not (args.procedure and args.dataset and args.task and args.policy):
+            parser.error("Provide at least one of --plan-a, --plan-b, or dataset+task+policy options.")
 
     if args.plan_a is not None:
         results_dir = _resolve_plan_a_results_dir(args.plan_a)
@@ -909,3 +941,24 @@ if __name__ == "__main__":
 
     if args.plan_b is not None:
         generate_plan_b_outputs(args.plan_b)
+    elif args.procedure and args.dataset and args.task and args.policy:
+        repo_root = Path(__file__).resolve().parents[2]
+        df = load_planb_summaries(
+            repo_root=repo_root,
+            procedure=args.procedure,
+            ablation=args.ablation,
+            dataset=args.dataset,
+            filename="subset_support_images_summary.csv",
+        )
+        df_task = df[
+            (df["policy_name"] == args.policy)
+            & (df["task_name"] == args.task)
+        ]
+        if df_task.empty:
+            raise SystemExit(
+                f"No Plan B summaries found for dataset={args.dataset} task={args.task} "
+                f"policy={args.policy} ablation={args.ablation}."
+            )
+        source = df_task["__source__"].iloc[0]
+        plan_b_root = Path(source).parent
+        generate_plan_b_outputs(plan_b_root)

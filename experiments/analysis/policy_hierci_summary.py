@@ -5,8 +5,51 @@ Usage:
   python -m experiments.analysis.policy_hierci_summary \
     --procedure random_v_MSE_v2 \
     --ablation pretrained_baseline \
-    --metric final_dice \
-    --policies random mse_min mse_max
+    --metric iterations_used \
+    --policies random mse_min mse_max mse_alternate_start_min mse_alternate_start_max \
+    --dataset ACDC
+
+python -m experiments.analysis.policy_hierci_summary \
+    --procedure random_vs_uncertainty_v2 \
+    --ablation pretrained_baseline \
+    --metric iterations_used \
+    --policies random reverse_curriculum reverse_curriculum_entropy curriculum curriculum_entropy \
+    --dataset ACDC
+
+python -m experiments.analysis.policy_hierci_summary \
+    --procedure fixed_uncertainty \
+    --ablation reverse_curriculum_entropy \
+    --metric initial_dice \
+    --policies reverse_curriculum_entropy reverse_curriculum_entropy_start_clip reverse_curriculum_entropy_start_dinov2 reverse_curriculum_entropy_start_vit reverse_curriculum_entropy_start_medsam reverse_curriculum_entropy_start_multiverseg \
+    --dataset ACDC
+
+python -m experiments.analysis.policy_hierci_summary \
+    --procedure fixed_uncertainty \
+    --ablation reverse_curriculum \
+    --metric initial_dice \
+    --policies reverse_curriculum reverse_curriculum_start_clip reverse_curriculum_start_dinov2 reverse_curriculum_start_vit reverse_curriculum_start_medsam reverse_curriculum_start_multiverseg \
+    --dataset ACDC
+
+python -m experiments.analysis.policy_hierci_summary \
+    --procedure fixed_uncertainty \
+    --ablation curriculum \
+    --metric initial_dice \
+    --policies curriculum curriculum_start_clip curriculum_start_dinov2 curriculum_start_vit curriculum_start_medsam curriculum_start_multiverseg \
+    --dataset ACDC
+
+python -m experiments.analysis.policy_hierci_summary \
+    --procedure fixed_uncertainty \
+    --ablation curriculum_entropy \
+    --metric initial_dice \
+    --policies curriculum_entropy curriculum_entropy_start_clip curriculum_entropy_start_dinov2 curriculum_entropy_start_vit curriculum_entropy_start_medsam curriculum_entropy_start_multiverseg \
+    --dataset ACDC
+
+python -m experiments.analysis.policy_hierci_summary \
+    --procedure random_v_repr_v2 \
+    --ablation pretrained_baseline \
+    --metric initial_dice \
+    --policies random representative_clip representative_multiverseg representative_vit \
+    --dataset ACDC
 """
 
 from __future__ import annotations
@@ -81,7 +124,7 @@ def main() -> None:
         mean = stats["mean"]
         ci_lo = stats["ci_lo"]
         ci_hi = stats["ci_hi"]
-        if lower_is_better:
+        if False:
             mean = -mean
             ci_lo = -ci_lo
             ci_hi = -ci_hi
@@ -131,7 +174,7 @@ def main() -> None:
     ax.set_xticks(list(x))
     ax.set_xticklabels(out_df["policy"].tolist(), rotation=30, ha="right")
     ax.set_ylabel(args.metric)
-    ax.set_ylim(0.72, 0.82)
+    # ax.set_ylim(0.4, 0.65)
     title_dataset = args.dataset if args.dataset else "all"
     ax.set_title(f"{args.procedure} / {args.ablation} ({title_dataset})")
     ax.axhline(0, color="black", linewidth=0.8)

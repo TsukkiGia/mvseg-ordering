@@ -7,7 +7,7 @@ Then average those subset spreads within each task, and plot a box (over tasks)
 in a 2x2 grid over ablations.
 
 Example:
-  python -m experiments.analysis.random_spread_boxplots --metric iterations_used --spread iqr
+  python -m experiments.analysis.random_spread_boxplots --metric initial_dice --spread iqr --procedure random_v_MSE_v2 --dataset ACDC --policy random
 """
 
 from __future__ import annotations
@@ -86,6 +86,7 @@ def _plot_box_grid(
     metric: str,
     spread: str,
     output_path: Path,
+    dataset: str,
 ) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(13, 9), sharey=True)
     axes = axes.flatten()
@@ -105,7 +106,7 @@ def _plot_box_grid(
     for ax in axes[len(data_by_ablation):]:
         ax.axis("off")
 
-    fig.suptitle("Random policy mean subset spread by task", fontsize=14)
+    fig.suptitle(f"{dataset} Random policy mean subset spread by task", fontsize=14)
     fig.tight_layout(rect=[0, 0.02, 1, 0.95])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=200)
@@ -180,6 +181,7 @@ def main() -> None:
         metric=args.metric,
         spread=args.spread,
         output_path=output_path,
+        dataset=args.dataset
     )
     print(f"Wrote {output_path}")
 

@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
 
+"""Plot Plan B per-image click curves with hierarchical bootstrap confidence bands.
+
+Example:
+    python -m experiments.analysis.planb_click_curves \
+        --procedure random_v_MSE_v2 \
+        --ablation pretrained_baseline \
+        --policy-name mse_max \
+        --dataset ACDC \
+        --images 0,1,2,4,9 \
+        --n-boot 1000
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -156,8 +168,26 @@ def parse_image_indices(value: str) -> List[int]:
 
 
 def main() -> None:
+    cli_examples = (
+        "Examples:\n"
+        "  python -m experiments.analysis.planb_click_curves \\\n"
+        "    --procedure random_v_MSE_v2 \\\n"
+        "    --ablation pretrained_baseline \\\n"
+        "    --policy-name random \\\n"
+        "    --dataset ACDC\n\n"
+        "  python -m experiments.analysis.planb_click_curves \\\n"
+        "    --procedure random_v_MSE_v2 \\\n"
+        "    --ablation pretrained_baseline \\\n"
+        "    --policy-name mse_max \\\n"
+        "    --dataset BTCV \\\n"
+        "    --images 0,1,2,4,9 \\\n"
+        "    --n-boot 1000 \\\n"
+        "    --output figures/planb_click_curves/btcv_mse_max.png"
+    )
     parser = argparse.ArgumentParser(
-        description="Plot hierarchical mean Dice vs. iteration curves with bootstrap CIs for Plan B subsets."
+        description="Plot hierarchical mean Dice vs. iteration curves with bootstrap CIs for Plan B subsets.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=cli_examples,
     )
     parser.add_argument(
         "--procedure",
@@ -252,7 +282,7 @@ def main() -> None:
         ax.axvline(-1, color="#888888", linestyle="--", linewidth=1, alpha=0.5)
         ax.text(-1, ax.get_ylim()[1], "Initial", rotation=90, va="top", ha="right", fontsize=8, color="#666666")
     ax.set_xlim(left=min(mean_curve.index) - 0.5)
-    ax.set_ylim(0.5, 0.9)
+    ax.set_ylim(0.4, 0.85)
     ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.4)
     ax.legend(loc="best")
     ax.xaxis.set_major_locator(MultipleLocator(1))
