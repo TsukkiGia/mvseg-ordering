@@ -28,6 +28,7 @@ experiments:
     plan_b_num_subsets: 10
     plan: [B]
     policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
       - ordering_config_path: experiments/ordering_configs/curriculum.yaml
       - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_start_multiverseg.yaml
       - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_start_vit.yaml
@@ -42,6 +43,7 @@ experiments:
     plan_b_num_subsets: 10
     plan: [B]
     policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
       - ordering_config_path: experiments/ordering_configs/curriculum_entropy.yaml
       - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_entropy_start_multiverseg.yaml
       - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_entropy_start_vit.yaml
@@ -56,6 +58,7 @@ experiments:
     plan_b_num_subsets: 10
     plan: [B]
     policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
       - ordering_config_path: experiments/ordering_configs/reverse_curriculum.yaml
       - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_start_multiverseg.yaml
       - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_start_vit.yaml
@@ -70,6 +73,7 @@ experiments:
     plan_b_num_subsets: 10
     plan: [B]
     policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
       - ordering_config_path: experiments/ordering_configs/reverse_curriculum_entropy.yaml
       - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_entropy_start_multiverseg.yaml
       - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_entropy_start_vit.yaml
