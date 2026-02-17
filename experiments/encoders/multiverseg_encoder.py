@@ -22,15 +22,29 @@ from universeg.nn.vmap import vmap
 
 from .base import BaseEncoder
 
-def zero_interaction_target5(image_chw: torch.Tensor) -> torch.Tensor:
-    # image_chw: (1,H,W) in [0,1]
-    if image_chw.dim() != 3 or image_chw.shape[0] != 1:
-        raise ValueError(f"Expected CHW with C=1, got {tuple(image_chw.shape)}")
-    _, H, W = image_chw.shape
-    x5 = torch.zeros((5, H, W), device=image_chw.device, dtype=image_chw.dtype)
-    x5[0] = image_chw[0]  # img channel
-    # channels 1..4 stay zeros: box, clicks(2ch), mask_input
-    return x5
+def zero_interaction_target5(image: torch.Tensor) -> torch.Tensor:
+    """Build 5-channel zero-interaction input from CHW or BCHW grayscale images."""
+    if image.dim() == 3:
+        # image_chw: (1, H, W) in [0, 1]
+        if image.shape[0] != 1:
+            raise ValueError(f"Expected CHW with C=1, got {tuple(image.shape)}")
+        _, h, w = image.shape
+        x5 = torch.zeros((5, h, w), device=image.device, dtype=image.dtype)
+        x5[0] = image[0]  # image channel
+        # channels 1..4 stay zeros: box, clicks(2ch), mask_input
+        return x5
+
+    if image.dim() == 4:
+        # image_bchw: (B, 1, H, W) in [0, 1]
+        if image.shape[1] != 1:
+            raise ValueError(f"Expected BCHW with C=1, got {tuple(image.shape)}")
+        b, _, h, w = image.shape
+        x5 = torch.zeros((b, 5, h, w), device=image.device, dtype=image.dtype)
+        x5[:, 0] = image[:, 0]  # image channel
+        # channels 1..4 stay zeros per image: box, clicks(2ch), mask_input
+        return x5
+
+    raise ValueError(f"Expected CHW or BCHW grayscale input, got {tuple(image.shape)}")
 
 @validate_arguments_init
 @dataclass(eq=False, repr=False)
@@ -73,7 +87,8 @@ class MultiverSegEncoder(BaseEncoder):
         MultiverSeg encoder feature map.
         """
         image = zero_interaction_target5(image)
-        image = image.unsqueeze(0)
+        if image.dim() == 3:
+            image = image.unsqueeze(0)
         target, _, _ = self._encode(
             image=image,
             support_images=support_images,
