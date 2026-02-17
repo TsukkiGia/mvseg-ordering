@@ -7,4 +7,12 @@ UniverSeg/
 tmux*
 interview.ipynb
 experiments/scripts/*
-
+figures/
+weights/medsam_vit_b.pth
+experiments/debug.csv
+.vscode-server/extensions/extensions.json
+test.ipynb
+perm_exploration.ipynb
+diffs.csv
+.wget-hsts
+.bash_history
