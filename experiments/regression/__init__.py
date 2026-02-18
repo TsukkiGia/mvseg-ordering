@@ -7,8 +7,11 @@ from typing import Any
 __all__ = [
     "EmbeddingTrainingData",
     "build_embedding_training_data",
+    "build_subset_regression_dataset_from_source_table",
     "collate_planb_summaries",
+    "get_task_embedding_data",
     "load_megamedical_dataset",
+    "parse_megamedical_task_id",
     "resolve_encoder",
     "_resolve_encoder",
 ]

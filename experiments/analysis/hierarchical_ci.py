@@ -9,7 +9,7 @@ Workflow:
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Sequence
 
 import numpy as np
 import pandas as pd
@@ -21,13 +21,15 @@ def aggregate_permutation(
     *,
     task_col: str = "task_id",
     policy_col: str = "policy_name",
+    extra_group_cols: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """Return per-permutation scores (mean across images).
 
     Steps:
       - mean metric per permutation (across images)
     """
-    perm_cols = [
+    group_prefix = list(extra_group_cols or [])
+    perm_cols = group_prefix + [
         "subset_index",
         task_col,
         policy_col,
@@ -50,6 +52,7 @@ def compute_subset_scores(
     *,
     task_col: str = "task_id",
     policy_col: str = "policy_name",
+    extra_group_cols: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """Return subset-level scores per (task, policy, subset)."""
     per_perm = aggregate_permutation(
@@ -57,9 +60,11 @@ def compute_subset_scores(
         metric,
         task_col=task_col,
         policy_col=policy_col,
+        extra_group_cols=extra_group_cols,
     )
     # Subset mean = average permutation score within the subset.
-    subset_cols = ["subset_index", task_col, policy_col]
+    group_prefix = list(extra_group_cols or [])
+    subset_cols = group_prefix + ["subset_index", task_col, policy_col]
     per_subset = (
         per_perm.groupby(subset_cols, as_index=False)[metric]
         .mean()
