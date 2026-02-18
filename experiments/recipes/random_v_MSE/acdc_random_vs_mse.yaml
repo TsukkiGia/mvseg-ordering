@@ -41,7 +41,7 @@ experiments:
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
 
-
+# v2 means random sampling instead of disjoint sampling
   - name: pretrained_baseline_random_vs_mse_v2
     pretrained_model_score_goal: true
     commit_ground_truth: false
@@ -55,11 +55,13 @@ experiments:
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
 
-  - name: pred_90_random_vs_mse_15p
+  # 15p, 10p, 5p are ablations to understand variance at different policies
+  - name: 15p
     pretrained_model_score_goal: true
     prompt_iterations: 15
     commit_ground_truth: false
-    script_dir: experiments/scripts/random_v_MSE/experiment_acdc/pretrained_baseline15p
+    script_dir: experiments/scripts/random_v_MSE_v2/experiment_acdc/pretrained_baseline15p
+    plan_b_num_subsets: 10
     plan: [B]
     policies:
       - ordering_config_path: experiments/ordering_configs/random_default.yaml
@@ -68,11 +70,12 @@ experiments:
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
 
-  - name: pred_90_random_vs_mse_10p
+  - name: 10p
     pretrained_model_score_goal: true
     prompt_iterations: 10
     commit_ground_truth: false
-    script_dir: experiments/scripts/random_v_MSE/experiment_acdc/pretrained_baseline10p
+    script_dir: experiments/scripts/random_v_MSE_v2/experiment_acdc/pretrained_baseline10p
+    plan_b_num_subsets: 10
     plan: [B]
     policies:
       - ordering_config_path: experiments/ordering_configs/random_default.yaml
@@ -81,11 +84,12 @@ experiments:
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
   
-  - name: pred_90_random_vs_mse_5p
+  - name: 5p
     pretrained_model_score_goal: true
     prompt_iterations: 5
     commit_ground_truth: false
-    script_dir: experiments/scripts/random_v_MSE/experiment_acdc/pretrained_baseline5p
+    script_dir: experiments/scripts/random_v_MSE_v2/experiment_acdc/pretrained_baseline5p
+    plan_b_num_subsets: 10
     plan: [B]
     policies:
       - ordering_config_path: experiments/ordering_configs/random_default.yaml
@@ -94,6 +98,8 @@ experiments:
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
 
+
+  # suggestion to explore 5p with subset size 5 but this uses disjoint subsets
   - name: pretrained_5p_5ss
     pretrained_model_score_goal: true
     prompt_iterations: 5

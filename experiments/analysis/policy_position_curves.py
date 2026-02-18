@@ -1,31 +1,35 @@
 #!/usr/bin/env python3
-"""Policy vs position curves (Plan B): metric vs image_index aggregated across tasks.
+"""Policy-vs-position curves (Plan B): metric vs image_index aggregated across tasks.
 
 This script loads per-policy Plan B summaries from:
   experiments/scripts/<procedure>/<experiment_*>/<task>/<ablation>/<policy>/B/subset_support_images_summary.csv
 
-Aggregation (by default, avoids overweighting policies with more permutations):
+Aggregation pipeline:
   (task, policy, subset_index, image_index) -> mean over permutations
   (task, policy, image_index) -> mean over subsets
-  (policy, image_index) -> mean over tasks + 95% CI across tasks
+  (policy, image_index) -> hierarchical bootstrap over tasks -> mean + 95% CI
 
-Optionally, plot diffs relative to a baseline policy (policy - baseline) computed per-task.
+Outputs:
+  - CSV with columns: policy_name, image_index, n_tasks, mean, ci_lo, ci_hi
+  - PNG line plot with CI bands for each policy
+
+Notes:
+  - The --baseline argument is retained only for backward compatibility and is ignored.
+  - No policy-difference curves are computed in this script.
 
 Sample CLI:
-  # Raw per-position curves (all discovered policies)
-  python -m experiments.analysis.policy_position_curves --dataset BUID --procedure random_vs_uncertainty --metric initial_dice --ablation pretrained_baseline
+  # Per-position curves (all discovered policies)
+  python -m experiments.analysis.policy_position_curves \
+    --dataset WBC \
+    --procedure random_vs_uncertainty_v2 \
+    --metric final_dice \
+    --ablation pretrained_baseline
 
-  # Diffs vs baseline (e.g., random)
-  python -m experiments.analysis.policy_position_curves \\
-    --dataset BTCV \\
-    --procedure random_vs_uncertainty \\
-    --metric iterations_used \\
-    --baseline random
-
-  # Custom ablation folder name (instead of "pretrained_baseline")
+  # Custom ablation folder name
   python -m experiments.analysis.policy_position_curves \\
     --dataset WBC \\
     --procedure random_v_MSE \\
+    --metric iterations_used \\
     --ablation abl_entropy
 """
 
