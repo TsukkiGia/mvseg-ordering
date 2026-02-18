@@ -7,6 +7,7 @@ from typing import Any
 __all__ = [
     "EmbeddingTrainingData",
     "build_embedding_training_data",
+    "collate_planb_summaries",
     "load_megamedical_dataset",
     "resolve_encoder",
     "_resolve_encoder",

@@ -5,9 +5,11 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 import numpy as np
+import pandas as pd
 import torch
 import yaml
 
+from experiments.analysis.planb_utils import load_planb_summaries
 from experiments.dataset.mega_medical_dataset import MegaMedicalDataset
 from experiments.encoders.encoder_utils import build_encoder_from_cfg
 
@@ -55,6 +57,50 @@ def resolve_encoder(
     return build_encoder_from_cfg(resolved_cfg, device=device)
 
 
+def collate_planb_summaries(
+    *,
+    repo_root: Path,
+    procedure_ablations: Sequence[tuple[str, str]],
+    dataset: Optional[str] = None,
+    filename: str = "subset_support_images_summary.csv",
+    strict: bool = True,
+) -> pd.DataFrame:
+    """Load and concatenate Plan B summaries for multiple (procedure, ablation) pairs."""
+    if not procedure_ablations:
+        raise ValueError("procedure_ablations must contain at least one (procedure, ablation) pair.")
+
+    frames: list[pd.DataFrame] = []
+    missing_pairs: list[tuple[str, str, str]] = []
+    for procedure, ablation in procedure_ablations:
+        try:
+            frame = load_planb_summaries(
+                repo_root=repo_root,
+                procedure=procedure,
+                ablation=ablation,
+                dataset=dataset,
+                filename=filename,
+            ).copy()
+        except FileNotFoundError as exc:
+            if strict:
+                raise
+            missing_pairs.append((procedure, ablation, str(exc)))
+            continue
+
+        frame["procedure"] = procedure
+        frame["ablation"] = ablation
+        frames.append(frame)
+
+    if not frames:
+        missing_str = ", ".join([f"({p}, {a})" for p, a, _ in missing_pairs]) or "<none>"
+        raise FileNotFoundError(
+            "No Plan B summaries were loaded for the requested procedure/ablation pairs. "
+            f"Missing: {missing_str}"
+        )
+
+    merged = pd.concat(frames, ignore_index=True)
+    return merged
+
+
 def build_embedding_training_data(
     *,
     dataset: MegaMedicalDataset,
@@ -71,7 +117,7 @@ def build_embedding_training_data(
         device=device,
     )
     device_obj = torch.device(device)
-    work_indices = list(dataset.get_data_indices())
+    work_indices = list(sorted(dataset.get_data_indices()))
 
     embedding_batches: list[np.ndarray] = []
     with torch.no_grad():
@@ -84,12 +130,7 @@ def build_embedding_training_data(
             batch_embeddings = model(batch_tensor).detach().cpu()
             if batch_embeddings.ndim == 1:
                 batch_embeddings = batch_embeddings.unsqueeze(0)
-            if batch_embeddings.shape[0] != len(chunk_indices):
-                raise ValueError(
-                    "Batch encoder output does not match input batch size: "
-                    f"{batch_embeddings.shape[0]} vs {len(chunk_indices)}."
-                )
-            embedding_batches.append(batch_embeddings.reshape(batch_embeddings.shape[0], -1).numpy())
+            embedding_batches.append(batch_embeddings.numpy())
 
     embedding_matrix = np.concatenate(embedding_batches, axis=0).astype(np.float32, copy=False)
     return EmbeddingTrainingData(
