@@ -1,0 +1,6 @@
+type: mse_embedding_proximity
+name: mse_embedding_alternate_start_max_clip
+mode: alternate
+alternate_start: max
+encoder_config_path: experiments/encoder_configs/clip_default.yaml
+encoder_device: cpu

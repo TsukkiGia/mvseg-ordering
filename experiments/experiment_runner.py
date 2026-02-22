@@ -23,7 +23,18 @@ import yaml
 from .dataset.wbc_multiple_perms import WBCDataset
 from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
-from .ordering import RandomConfig, MSEProximityConfig, OrderingConfig, UncertaintyConfig, StartSelectedUncertaintyConfig, AdaptiveOrderingConfig, NonAdaptiveOrderingConfig, compute_shard_indices, RepresentativeConfig
+from .ordering import (
+    AdaptiveOrderingConfig,
+    MSEEmbeddingProximityConfig,
+    MSEProximityConfig,
+    NonAdaptiveOrderingConfig,
+    OrderingConfig,
+    RandomConfig,
+    RepresentativeConfig,
+    StartSelectedUncertaintyConfig,
+    UncertaintyConfig,
+    compute_shard_indices,
+)
 from .analysis.results_plot import generate_plan_a_outputs, generate_plan_b_outputs
 from pylot.experiment.util import eval_config
 from .dataset.tyche_augs import TycheAugs
@@ -223,6 +234,25 @@ def load_ordering_config(
         alternate_start = cfg.get("alternate_start", "min")
         return MSEProximityConfig(
             seed=seed,
+            shard_id=shard_id,
+            shard_count=shard_count,
+            mode=mode,
+            alternate_start=alternate_start,
+            name=name,
+        )
+    if cfg_type == "mse_embedding_proximity":
+        mode = cfg.get("mode", "min")
+        alternate_start = cfg.get("alternate_start", "min")
+        encoder_cfg_path = cfg.get("encoder_config_path")
+        if not encoder_cfg_path:
+            raise ValueError("encoder_config_path is required for mse_embedding_proximity configs.")
+        encoder_device = cfg.get("encoder_device") or device
+        with open(Path(encoder_cfg_path), "r", encoding="utf-8") as fh:
+            encoder_cfg = yaml.safe_load(fh) or {}
+        return MSEEmbeddingProximityConfig(
+            seed=seed,
+            encoder_cfg=encoder_cfg,
+            device=encoder_device,
             shard_id=shard_id,
             shard_count=shard_count,
             mode=mode,
@@ -590,7 +620,11 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
             # Single deterministic start; avoid duplicate shards.
             if shard_id != 0:
                 continue
-        elif isinstance(ordering_config, MSEProximityConfig) or isinstance(ordering_config, UncertaintyConfig):
+        elif (
+            isinstance(ordering_config, MSEProximityConfig)
+            or isinstance(ordering_config, MSEEmbeddingProximityConfig)
+            or isinstance(ordering_config, UncertaintyConfig)
+        ):
             shard_slice = compute_shard_indices(total_indices, shard_id, setup.shards)
             if not shard_slice:
                 continue

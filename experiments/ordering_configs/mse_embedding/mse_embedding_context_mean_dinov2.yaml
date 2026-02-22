@@ -1,0 +1,6 @@
+type: mse_embedding_proximity
+name: mse_embedding_context_mean_dinov2
+mode: context_mean
+alternate_start: min
+encoder_config_path: experiments/encoder_configs/dinov2_default.yaml
+encoder_device: cpu

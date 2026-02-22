@@ -1,0 +1,6 @@
+type: mse_embedding_proximity
+name: mse_embedding_context_mean_medsam
+mode: context_mean
+alternate_start: min
+encoder_config_path: experiments/encoder_configs/medsam_default.yaml
+encoder_device: cpu

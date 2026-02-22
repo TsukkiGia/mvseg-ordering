@@ -1,0 +1,6 @@
+type: mse_embedding_proximity
+name: mse_embedding_min_clip
+mode: min
+alternate_start: min
+encoder_config_path: experiments/encoder_configs/clip_default.yaml
+encoder_device: cpu

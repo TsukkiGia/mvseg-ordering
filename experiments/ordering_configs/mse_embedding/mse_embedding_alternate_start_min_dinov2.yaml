@@ -1,0 +1,6 @@
+type: mse_embedding_proximity
+name: mse_embedding_alternate_start_min_dinov2
+mode: alternate
+alternate_start: min
+encoder_config_path: experiments/encoder_configs/dinov2_default.yaml
+encoder_device: cpu

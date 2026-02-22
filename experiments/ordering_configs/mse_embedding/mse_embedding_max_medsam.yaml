@@ -1,0 +1,6 @@
+type: mse_embedding_proximity
+name: mse_embedding_max_medsam
+mode: max
+alternate_start: min
+encoder_config_path: experiments/encoder_configs/medsam_default.yaml
+encoder_device: cpu

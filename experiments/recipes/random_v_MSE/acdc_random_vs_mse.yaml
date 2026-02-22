@@ -113,3 +113,64 @@ experiments:
       - ordering_config_path: experiments/ordering_configs/mse_max.yaml
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_min.yaml
       - ordering_config_path: experiments/ordering_configs/mse_alternate_start_max.yaml
+
+  - name: pretrained_baseline_random_vs_mse_embedding_min_v2_5p
+    pretrained_model_score_goal: true
+    prompt_iterations: 5
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_MSE_v2/experiment_acdc/pretrained_baseline5p_mse_embedding_min
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_min_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_min_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_min_medsam.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_min_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_min_vit.yaml
+
+  - name: pretrained_baseline_random_vs_mse_embedding_max_v2_5p
+    pretrained_model_score_goal: true
+    prompt_iterations: 5
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_MSE_v2/experiment_acdc/pretrained_baseline5p_mse_embedding_max
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_max_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_max_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_max_medsam.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_max_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_max_vit.yaml
+
+  - name: pretrained_baseline_random_vs_mse_embedding_alternate_start_min_v2_5p
+    pretrained_model_score_goal: true
+    prompt_iterations: 5
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_MSE_v2/experiment_acdc/pretrained_baseline5p_mse_embedding_alternate_start_min
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_min_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_min_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_min_medsam.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_min_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_min_vit.yaml
+
+  - name: pretrained_baseline_random_vs_mse_embedding_alternate_start_max_v2_5p
+    pretrained_model_score_goal: true
+    prompt_iterations: 5
+    commit_ground_truth: false
+    script_dir: experiments/scripts/random_v_MSE_v2/experiment_acdc/pretrained_baseline5p_mse_embedding_alternate_start_max
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_max_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_max_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_max_medsam.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_max_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_max_vit.yaml
+
