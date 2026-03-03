@@ -15,14 +15,14 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
 
 import matplotlib.pyplot as plt
 
-from experiments.analysis.task_explorer import FAMILY_ROOTS, iter_family_task_dirs
+from experiments.analysis.task_explorer import FAMILY_ROOTS
+from experiments.analysis.planb_utils import load_planb_summaries
 
 
 def _resolve_dataset_root(dataset: str) -> str:
@@ -36,17 +36,6 @@ def _default_outdir(dataset: str, procedure: str, *, ablation: str) -> Path:
     repo_root = Path(__file__).resolve().parents[2]
     root_name = _resolve_dataset_root(dataset)
     return repo_root / "experiments" / "scripts" / procedure / root_name / "figures" / ablation
-
-
-def _load_planb_summary(task_dir: Path, *, ablation: str, policy: str) -> pd.DataFrame:
-    csv_path = task_dir / ablation / policy / "B" / "subset_support_images_summary.csv"
-    if not csv_path.exists():
-        raise FileNotFoundError(str(csv_path))
-    df = pd.read_csv(csv_path)
-    if df.empty:
-        raise ValueError(f"Empty CSV: {csv_path}")
-    df["__source__"] = str(csv_path)
-    return df
 
 
 def _agg_per_perm(df: pd.DataFrame, metric: str) -> pd.DataFrame:
@@ -126,42 +115,57 @@ def main() -> None:
 
     rows: list[dict[str, object]] = []
 
-    any_task = False
-    for family, task_dir, root_name in iter_family_task_dirs(
-        repo_root,
+    full_df = load_planb_summaries(
+        repo_root=repo_root,
         procedure=args.procedure,
-        include_families=[args.dataset],
-    ):
-        any_task = True
-        try:
-            df_random = _load_planb_summary(task_dir, ablation=args.ablation, policy=args.random_policy)
-        except FileNotFoundError:
+        ablation=args.ablation,
+        dataset=args.dataset,
+        filename="subset_support_images_summary.csv",
+    )
+
+    if metric not in full_df.columns:
+        raise ValueError(f"Metric column '{metric}' not found in Plan B summaries.")
+
+    random_df = full_df.loc[full_df["policy_name"] == args.random_policy]
+    if random_df.empty:
+        raise FileNotFoundError(
+            f"No random policy '{args.random_policy}' found for dataset={args.dataset} "
+            f"procedure={args.procedure} ablation={args.ablation}."
+        )
+
+    rep_df = full_df.loc[full_df["policy_name"].str.startswith("representative", na=False)]
+    if rep_df.empty:
+        raise FileNotFoundError(
+            f"No representative policies found for dataset={args.dataset} "
+            f"procedure={args.procedure} ablation={args.ablation}."
+        )
+
+    for task_id, rep_task_df in rep_df.groupby("task_id"):
+        task_random_df = random_df.loc[random_df["task_id"] == task_id]
+        if task_random_df.empty:
             continue
 
-        abl_dir = task_dir / args.ablation
-        rep_policies = sorted(
-            p.name for p in abl_dir.iterdir()
-            if p.is_dir() and p.name.startswith("representative")
-        ) if abl_dir.exists() else []
+        family = rep_task_df["family"].iloc[0]
+        task_name = rep_task_df["task_name"].iloc[0]
+        root_name = next(
+            (root for root, fam in FAMILY_ROOTS.items() if fam == family),
+            family,
+        )
 
-        if not rep_policies:
-            continue
+        random_per = _agg_per_perm(task_random_df, metric)
 
-        random_per = _agg_per_perm(df_random, metric)
-
-        for rep_policy in rep_policies:
-            try:
-                df_rep = _load_planb_summary(task_dir, ablation=args.ablation, policy=rep_policy)
-            except FileNotFoundError:
-                continue
-            rep_per = _agg_per_perm(df_rep, metric)
+        for rep_policy, rep_policy_df in rep_task_df.groupby("policy_name"):
+            rep_per = _agg_per_perm(rep_policy_df, metric)
 
             # per subset: random distribution vs representative single value
             for subset_index, rep_group in rep_per.groupby("subset_index"):
                 rep_vals = rep_group["metric_value"].to_numpy(dtype=float)
                 rep_val = float(np.nanmean(rep_vals))  # tolerate multiple reps by averaging
 
-                rand_vals = random_per.loc[random_per["subset_index"] == subset_index, "metric_value"].to_numpy(dtype=float)
+                rand_vals = random_per.loc[
+                    random_per["subset_index"] == subset_index,
+                    "metric_value",
+                ].to_numpy(dtype=float)
                 if rand_vals.size == 0:
                     continue
 
@@ -174,9 +178,10 @@ def main() -> None:
                 rows.append(
                     {
                         "procedure": args.procedure,
-                        "dataset_family": family,
+                        "family": family,
                         "root_name": root_name,
-                        "task_name": task_dir.name,
+                        "task_id": task_id,
+                        "task_name": task_name,
                         "ablation": args.ablation,
                         "metric": metric,
                         "reducer": "mean",
@@ -191,11 +196,6 @@ def main() -> None:
                         "rep_midrank": midrank,
                     }
                 )
-
-    if not any_task:
-        raise FileNotFoundError(
-            f"No tasks found under experiments/scripts/{args.procedure} for dataset={args.dataset}."
-        )
 
     if not rows:
         raise FileNotFoundError(
