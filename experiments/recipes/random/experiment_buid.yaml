@@ -78,10 +78,33 @@ experiments:
     mega_dataset_size: 100
     plan: [B]
 
-
+  # FINAL Results: 5, 20 prompt version with label and pred committing
   - name: pretrained_baseline_random_v2
     pretrained_model_score_goal: true
     commit_ground_truth: false
     script_dir: experiments/scripts/random_v2/experiment_buid/pretrained_baseline
+    plan_b_num_subsets: 10
+    plan: [B]
+
+  - name: pretrained_baseline_random_v2_5
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/random_v2/experiment_buid/pretrained_baseline5
+    plan_b_num_subsets: 10
+    plan: [B]
+
+  - name: pretrained_baseline_random_v2_gt
+    pretrained_model_score_goal: true
+    commit_ground_truth: true
+    script_dir: experiments/scripts/random_v2/experiment_buid/pretrained_baseline_gt
+    plan_b_num_subsets: 10
+    plan: [B]
+
+  - name: pretrained_baseline_random_v2_5_gt
+    pretrained_model_score_goal: true
+    commit_ground_truth: true
+    prompt_iterations: 5
+    script_dir: experiments/scripts/random_v2/experiment_buid/pretrained_baseline5_gt
     plan_b_num_subsets: 10
     plan: [B]
