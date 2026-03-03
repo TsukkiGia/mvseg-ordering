@@ -497,9 +497,23 @@ def run_shard_worker(shard_dir: str, setup: ExperimentSetup, shard_id: int, orde
     shard_path = Path(shard_dir)
     shard_path.mkdir(parents=True, exist_ok=True)
 
+    shard_device = resolve_shard_device(setup.device, shard_id)
+    # Bind the CUDA context early in the worker before any model/prompt setup.
+    if shard_device.startswith("cuda") and torch.cuda.is_available():
+        device_index = int(shard_device.split(":", 1)[1]) if ":" in shard_device else 0
+        torch.cuda.set_device(device_index)
+
+    # Make sure shard-local configs (e.g., encoder-based ordering) use the shard device.
+    if hasattr(ordering_config, "device"):
+        ordering_config.device = torch.device(shard_device)
+        if hasattr(ordering_config, "encoder") and getattr(ordering_config, "encoder") is not None:
+            ordering_config.encoder = ordering_config.encoder.to(ordering_config.device).eval()
+    if hasattr(ordering_config, "log_dir"):
+        ordering_config.log_dir = shard_path / "logs"
+
     prompt_generator, interaction_protocol = load_prompt_generator(
         setup.prompt_config_path, setup.prompt_config_key
-    ) 
+    )
     write_run_metadata(
         output_dir=shard_path,
         setup=setup,
@@ -509,14 +523,6 @@ def run_shard_worker(shard_dir: str, setup: ExperimentSetup, shard_id: int, orde
         shard_id=shard_id,
         shard_count=setup.shards,
     )
-    shard_device = resolve_shard_device(setup.device, shard_id)
-    # Make sure shard-local configs (e.g., representative encoder) use the shard device.
-    if hasattr(ordering_config, "device"):
-        ordering_config.device = torch.device(shard_device)
-        if hasattr(ordering_config, "encoder") and getattr(ordering_config, "encoder") is not None:
-            ordering_config.encoder = ordering_config.encoder.to(ordering_config.device).eval()
-    if hasattr(ordering_config, "log_dir"):
-        ordering_config.log_dir = shard_path / "logs"
 
     experiment = MVSegOrderingExperiment(
         support_dataset=setup.support_dataset,
