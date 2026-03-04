@@ -8,7 +8,7 @@ import os
 
 os.environ["NEURITE_BACKEND"] = "pytorch"
 DATASETS =  ["ACDC", "PanDental", "SCD", "STARE", "SpineWeb", "WBC", \
-            "BTCV", "BUID", "HipXRay", "TotalSegmentator", "COBRE", "SCR"]
+            "BTCV", "BUID", "HipXRay", "TotalSegmentator", "COBRE", "SCR", "DRIVE"]
 
 
 def load_data(
