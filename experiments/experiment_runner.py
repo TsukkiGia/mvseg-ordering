@@ -210,6 +210,8 @@ def load_ordering_config(
         return RandomConfig(
             seed=seed,
             permutations=K_DEFAULT,
+            shard_id=shard_id,
+            shard_count=shard_count,
             name="random",
         )
 
