@@ -25,6 +25,7 @@ from .dataset.mega_medical_dataset import MegaMedicalDataset
 from .mvseg_ordering_experiment import MVSegOrderingExperiment
 from .ordering import (
     AdaptiveOrderingConfig,
+    LearnedCostOrderingConfig,
     MSEEmbeddingProximityConfig,
     MSEProximityConfig,
     NonAdaptiveOrderingConfig,
@@ -315,6 +316,22 @@ def load_ordering_config(
             name=name,
             device=device,
         )
+    if cfg_type == "learned_cost":
+        checkpoint_path = cfg.get("checkpoint_path")
+        if not checkpoint_path:
+            raise ValueError("checkpoint_path is required for learned_cost configs.")
+        max_context = int(cfg.get("max_context", 9))
+        minimize = bool(cfg.get("minimize", True))
+        return LearnedCostOrderingConfig(
+            seed=seed,
+            checkpoint_path=Path(checkpoint_path),
+            max_context=max_context,
+            minimize=minimize,
+            shard_id=shard_id,
+            shard_count=shard_count,
+            name=name,
+            device=device,
+        )
 
     raise ValueError(f"Unknown ordering config type: {cfg_type}")
 
@@ -510,6 +527,8 @@ def run_shard_worker(shard_dir: str, setup: ExperimentSetup, shard_id: int, orde
         ordering_config.device = torch.device(shard_device)
         if hasattr(ordering_config, "encoder") and getattr(ordering_config, "encoder") is not None:
             ordering_config.encoder = ordering_config.encoder.to(ordering_config.device).eval()
+        if hasattr(ordering_config, "set_device"):
+            ordering_config.set_device(ordering_config.device)
     if hasattr(ordering_config, "log_dir"):
         ordering_config.log_dir = shard_path / "logs"
 
@@ -626,6 +645,10 @@ def run_single_experiment(setup: ExperimentSetup) -> None:
                 continue
         elif isinstance(ordering_config, StartSelectedUncertaintyConfig):
             # Single deterministic start; avoid duplicate shards.
+            if shard_id != 0:
+                continue
+        elif isinstance(ordering_config, LearnedCostOrderingConfig):
+            # Deterministic adaptive policy; avoid duplicate shards.
             if shard_id != 0:
                 continue
         elif (

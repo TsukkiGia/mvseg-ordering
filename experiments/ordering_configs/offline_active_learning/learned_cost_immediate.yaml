@@ -1,0 +1,5 @@
+type: learned_cost
+name: learned_cost_immediate
+checkpoint_path: experiments/offline_active_learning/checkpoints_btcv/model_immediate.pt
+max_context: 9
+minimize: true

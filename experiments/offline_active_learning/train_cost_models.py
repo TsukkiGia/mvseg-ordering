@@ -39,6 +39,10 @@ def _maybe_init_wandb(args: argparse.Namespace) -> Any | None:
         "mode": str(args.wandb_mode),
         "config": vars(args),
     }
+    if str(args.wandb_run_name).strip():
+        init_kwargs["name"] = str(args.wandb_run_name).strip()
+    if str(args.wandb_entity).strip():
+        init_kwargs["entity"] = str(args.wandb_entity).strip()
     return wandb.init(**init_kwargs)
 
 def _split_tasks(
@@ -266,6 +270,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-seed", type=int, default=42)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--wandb-project", default="mvseg-offline-active-learning")
+    parser.add_argument("--wandb-run-name", default="")
+    parser.add_argument("--wandb-entity", default="")
     parser.add_argument(
         "--wandb-mode",
         choices=["online", "offline", "disabled"],

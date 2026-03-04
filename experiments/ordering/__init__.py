@@ -5,6 +5,7 @@ from .mse_embedding_proximity import MSEEmbeddingProximityConfig
 from .representative import RepresentativeConfig
 from .uncertainty import UncertaintyConfig
 from .uncertainty_start import StartSelectedUncertaintyConfig
+from .learned_cost import LearnedCostOrderingConfig
 
 __all__ = [
     "OrderingConfig",
@@ -17,4 +18,5 @@ __all__ = [
     "RepresentativeConfig",
     "UncertaintyConfig",
     "StartSelectedUncertaintyConfig",
+    "LearnedCostOrderingConfig",
 ]
