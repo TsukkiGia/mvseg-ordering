@@ -864,7 +864,7 @@ if __name__ == "__main__":
             task=args.mega_task,
             label=args.mega_label,
             slicing=args.mega_slicing,
-            split="train",
+            split=args.split,
             seed=args.experiment_seed,
             dataset_size=args.mega_dataset_size,
         )

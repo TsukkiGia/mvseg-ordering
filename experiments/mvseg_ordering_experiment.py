@@ -34,6 +34,7 @@ from .ordering import (
     OrderingConfig,
     RandomConfig,
     UncertaintyConfig,
+    LearnedCostOrderingConfig,
     AdaptiveOrderingConfig,
     NonAdaptiveOrderingConfig,
 )
@@ -131,15 +132,30 @@ class MVSegOrderingExperiment():
 
         # Branch: adaptive (online) vs non-adaptive (precomputed) orderings.
         if isinstance(self.ordering_config, AdaptiveOrderingConfig):
-            (
-                all_iterations,
-                all_images,
-                all_eval_iterations,
-                all_eval_images,
-            ) = self._run_uncertainty_permutations(
-                support_indices=support_indices,
-                eval_indices=eval_indices,
-            )
+            if isinstance(self.ordering_config, UncertaintyConfig):
+                (
+                    all_iterations,
+                    all_images,
+                    all_eval_iterations,
+                    all_eval_images,
+                ) = self._run_uncertainty_permutations(
+                    support_indices=support_indices,
+                    eval_indices=eval_indices,
+                )
+            elif isinstance(self.ordering_config, LearnedCostOrderingConfig):
+                (
+                    all_iterations,
+                    all_images,
+                    all_eval_iterations,
+                    all_eval_images,
+                ) = self._run_learned_cost_permutations(
+                    support_indices=support_indices,
+                    eval_indices=eval_indices,
+                )
+            else:
+                raise RuntimeError(
+                    f"Unsupported adaptive ordering config: {type(self.ordering_config).__name__}"
+                )
             self._write_aggregate_results(
                 frames=all_iterations,
                 output_path=self.results_dir / "support_images_iterations.csv",
@@ -768,6 +784,174 @@ class MVSegOrderingExperiment():
             self._write_aggregate_results(
                 frames=all_uncertainty_perturbations,
                 output_path=self.results_dir / "uncertainty_perturbations.csv",
+            )
+        return all_iterations, all_images, all_eval_iterations, all_eval_images
+
+    def _run_learned_cost_permutations(
+        self,
+        support_indices: Sequence[int],
+        eval_indices: Sequence[int],
+    ):
+        """Adaptive ordering using a learned cost model (pick lowest predicted cost)."""
+
+        all_iterations = []
+        all_images = []
+        all_eval_iterations = []
+        all_eval_images = []
+        all_candidate_scores = []
+
+        run_label = 0
+        perm_gen_seed = self.seed
+        seed_folder_dir = self.results_dir / f"Perm_Seed_{run_label}"
+        seed_folder_dir.mkdir(exist_ok=True)
+        print("[learned_cost] Running deterministic adaptive policy (single ordering).")
+
+        remaining = list(support_indices)
+        ordering_sequence: list[int] = []
+        context_images = None
+        context_labels = None
+        rows = []
+        image_summary_rows = []
+        candidate_score_rows = []
+
+        while remaining:
+            selected_idx, scored = self.ordering_config.select_index_by_predicted_cost(
+                candidate_indices=remaining,
+                support_dataset=self.support_dataset,
+                context_images=context_images,
+                context_labels=context_labels,
+                return_details=True,
+            )
+            next_image_index = len(ordering_sequence)
+            next_context_size = 0 if context_images is None else len(context_images[0])
+            for candidate_id, score in scored:
+                candidate_score_rows.append(
+                    {
+                        "policy_name": self.ordering_config.name,
+                        "experiment_seed": self.seed,
+                        "perm_gen_seed": perm_gen_seed,
+                        "permutation_index": run_label,
+                        "selection_step": next_image_index,
+                        "candidate_id": int(candidate_id),
+                        "predicted_cost": float(score),
+                        "selected": bool(candidate_id == selected_idx),
+                        "context_size": next_context_size,
+                        "cost_label_name": self.ordering_config.label_name,
+                    }
+                )
+
+            remaining.remove(selected_idx)
+            image, label = self.support_dataset.get_item_by_data_index(selected_idx)
+            image = image.to(self.device)
+            label = label.to(self.device)
+            ordering_sequence.append(selected_idx)
+            context_size = 0 if context_images is None else len(context_images[0])
+
+            # Initial prediction
+            yhat = self.model.predict(image[None], context_images, context_labels, return_logits=True).to(self.device)
+            score = dice_score((yhat > 0).float(), label[None, ...])
+            initial_dice = float(score.item())
+
+            self._append_iteration_record(
+                rows=rows,
+                perm_gen_seed=perm_gen_seed,
+                ordering_index=run_label,
+                image_index=len(ordering_sequence) - 1,
+                image_id=selected_idx,
+                iteration=-1,
+                score=initial_dice,
+                pos_clicks=0,
+                neg_clicks=0,
+                context_size=context_size,
+            )
+
+            if initial_dice >= self.dice_cutoff:
+                iterations_used = 0
+                dice_at_goal = initial_dice
+                final_dice, _, _, _ = self._run_prompt_loop(
+                    image=image,
+                    label=label,
+                    image_index=len(ordering_sequence) - 1,
+                    image_id=selected_idx,
+                    context_images=context_images,
+                    context_labels=context_labels,
+                    yhat=yhat,
+                    rows=rows,
+                    perm_gen_seed=perm_gen_seed,
+                    ordering_index=run_label,
+                    seed_folder_dir=seed_folder_dir,
+                )
+            else:
+                final_dice, iterations_used, yhat, dice_at_goal = self._run_prompt_loop(
+                    image=image,
+                    label=label,
+                    image_index=len(ordering_sequence) - 1,
+                    image_id=selected_idx,
+                    context_images=context_images,
+                    context_labels=context_labels,
+                    yhat=yhat,
+                    rows=rows,
+                    perm_gen_seed=perm_gen_seed,
+                    ordering_index=run_label,
+                    seed_folder_dir=seed_folder_dir,
+                )
+
+            self._append_image_summary_record(
+                image_summary_rows=image_summary_rows,
+                perm_gen_seed=perm_gen_seed,
+                ordering_index=run_label,
+                image_index=len(ordering_sequence) - 1,
+                image_id=selected_idx,
+                initial_dice=initial_dice,
+                final_dice=final_dice,
+                dice_at_goal=dice_at_goal,
+                iterations_used=iterations_used,
+                reached_cutoff=dice_at_goal >= self.dice_cutoff,
+                context_size=context_size,
+            )
+
+            # Commit to context
+            context_images, context_labels = self._update_context(
+                context_images=context_images,
+                context_labels=context_labels,
+                image=image,
+                label=label,
+                prediction=yhat,
+            )
+
+        per_iteration_records = pd.DataFrame.from_records(rows)
+        per_image_records = pd.DataFrame.from_records(image_summary_rows)
+        per_iteration_records.to_csv(seed_folder_dir / "per_iteration_records.csv", index=False)
+        per_image_records.to_csv(seed_folder_dir / "per_image_records.csv", index=False)
+        all_iterations.append(per_iteration_records)
+        all_images.append(per_image_records)
+
+        if candidate_score_rows:
+            candidate_scores_df = pd.DataFrame.from_records(candidate_score_rows)
+            candidate_scores_df.to_csv(seed_folder_dir / "learned_cost_candidate_scores.csv", index=False)
+            all_candidate_scores.append(candidate_scores_df)
+
+        if self.eval_fraction is not None and eval_indices:
+            eval_iteration_df, eval_image_df = self._evaluate_heldout_over_context(
+                eval_indices=eval_indices,
+                perm_gen_seed=perm_gen_seed,
+                permutation_index=run_label,
+                seed_folder_dir=seed_folder_dir,
+                full_context_images=context_images,
+                full_context_labels=context_labels,
+                context_steps=self.eval_checkpoints,
+            )
+            eval_dir = seed_folder_dir / "eval"
+            eval_dir.mkdir(exist_ok=True)
+            eval_iteration_df.to_csv(eval_dir / "eval_iteration_records.csv", index=False)
+            eval_image_df.to_csv(eval_dir / "eval_image_records.csv", index=False)
+            all_eval_iterations.append(eval_iteration_df)
+            all_eval_images.append(eval_image_df)
+
+        if all_candidate_scores:
+            self._write_aggregate_results(
+                frames=all_candidate_scores,
+                output_path=self.results_dir / "learned_cost_candidate_scores.csv",
             )
         return all_iterations, all_images, all_eval_iterations, all_eval_images
 

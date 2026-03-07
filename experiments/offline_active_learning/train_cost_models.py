@@ -227,8 +227,8 @@ def _train(
             no_improve = 0
         else:
             no_improve += 1
-            if no_improve >= int(patience):
-                break
+            # if no_improve >= int(patience):
+            #     break
 
     if best_state is None:
         raise RuntimeError(f"No checkpoint captured for label '{label_name}'.")
