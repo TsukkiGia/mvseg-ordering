@@ -50,6 +50,54 @@ def _sanity_check_index(index_df: pd.DataFrame) -> None:
             seen.append(candidate)
 
 
+def collapse_duplicate_state_action_rows(
+    index_df: pd.DataFrame,
+    *,
+    collapse_across_subsets: bool = False,
+) -> pd.DataFrame:
+    """
+    Average duplicate state-action rows caused by repeated random permutations.
+
+    Duplicate key:
+      - within-subset mode:  (family, task_id, subset_index, context, candidate, step)
+      - across-subset mode:  (family, task_id, context, candidate, step)
+    """
+
+    group_cols = ["family", "task_id"]
+    if not collapse_across_subsets:
+        group_cols.append("subset_index")
+    group_cols += [
+        "step_index",
+        "context_image_ids",
+        "candidate_image_id",
+        "n_steps",
+        "prompt_limit",
+        "commit_type",
+    ]
+
+    agg_kwargs: dict[str, tuple[str, str]] = {
+        "y_immediate": ("y_immediate", "mean"),
+        "y_ctg": ("y_ctg", "mean"),
+        "n_merged": ("y_immediate", "size"),
+        "y_immediate_std": ("y_immediate", "std"),
+        "y_ctg_std": ("y_ctg", "std"),
+        "n_permutations_merged": ("permutation_index", "nunique"),
+    }
+    if collapse_across_subsets:
+        agg_kwargs["n_subsets_merged"] = ("subset_index", "nunique")
+
+    collapsed = index_df.groupby(group_cols, as_index=False).agg(**agg_kwargs)
+    collapsed["y_immediate_std"] = collapsed["y_immediate_std"].fillna(0.0)
+    collapsed["y_ctg_std"] = collapsed["y_ctg_std"].fillna(0.0)
+
+    if collapse_across_subsets:
+        collapsed.insert(2, "subset_index", -1)
+
+    sort_cols = ["family", "task_id", "subset_index", "step_index", "candidate_image_id"]
+    collapsed = collapsed.sort_values(sort_cols).reset_index(drop=True)
+    return collapsed
+
+
 def build_random5_index(
     *,
     repo_root: Path,
@@ -58,7 +106,12 @@ def build_random5_index(
     policy: str,
     dataset: str | None,
     expected_prompt_limit: int = 5,
+    collapse_duplicates: bool = False,
+    collapse_across_subsets: bool = False,
 ) -> pd.DataFrame:
+    if collapse_across_subsets and not collapse_duplicates:
+        raise ValueError("collapse_across_subsets=True requires collapse_duplicates=True.")
+
     source_df = load_planb_summaries(
         repo_root=repo_root,
         procedure=procedure,
@@ -120,6 +173,12 @@ def build_random5_index(
         ["family", "task_id", "subset_index", "permutation_index", "step_index"]
     ).reset_index(drop=True)
     _sanity_check_index(index_df)
+
+    if collapse_duplicates:
+        index_df = collapse_duplicate_state_action_rows(
+            index_df,
+            collapse_across_subsets=collapse_across_subsets,
+        )
     return index_df
 
 
@@ -136,6 +195,16 @@ def parse_args() -> argparse.Namespace:
         default=5,
         help="Expected prompt limit for the random-5 source logs.",
     )
+    parser.add_argument(
+        "--collapse-duplicates",
+        action="store_true",
+        help="Average duplicate state-action rows across random permutations.",
+    )
+    parser.add_argument(
+        "--collapse-across-subsets",
+        action="store_true",
+        help="When collapsing, merge duplicate state-action rows across subsets within a task.",
+    )
     return parser.parse_args()
 
 
@@ -150,13 +219,19 @@ def main() -> None:
         policy=args.policy,
         dataset=args.dataset,
         expected_prompt_limit=int(args.expected_prompt_limit),
+        collapse_duplicates=bool(args.collapse_duplicates),
+        collapse_across_subsets=bool(args.collapse_across_subsets),
     )
     out_path = write_index(index_df, args.out_path)
-    summary = (
-        index_df.groupby("family", as_index=False)
-        .agg(n_rows=("step_index", "size"), n_tasks=("task_id", "nunique"), n_perms=("permutation_index", "nunique"))
-        .sort_values("family")
-    )
+    agg_kwargs: dict[str, tuple[str, str]] = {
+        "n_rows": ("step_index", "size"),
+        "n_tasks": ("task_id", "nunique"),
+    }
+    if "permutation_index" in index_df.columns:
+        agg_kwargs["n_perms"] = ("permutation_index", "nunique")
+    elif "n_permutations_merged" in index_df.columns:
+        agg_kwargs["mean_perms_merged"] = ("n_permutations_merged", "mean")
+    summary = index_df.groupby("family", as_index=False).agg(**agg_kwargs).sort_values("family")
     print(summary.to_string(index=False))
     print(f"\nWrote {out_path} ({len(index_df):,} rows)")
 

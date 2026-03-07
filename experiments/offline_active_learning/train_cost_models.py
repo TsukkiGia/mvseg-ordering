@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 import json
 import random
 from pathlib import Path
@@ -87,6 +88,20 @@ def _regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, flo
     }
 
 
+def _regression_metrics_by_step(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    step_index: np.ndarray,
+) -> dict[int, dict[str, float]]:
+    """Compute metrics for each context size (step index)."""
+    context_size_arr = np.asarray(step_index, dtype=np.int64)
+    metrics_by_context_size: dict[int, dict[str, float]] = {}
+    for context_size in sorted(np.unique(context_size_arr).tolist()):
+        mask = context_size_arr == int(context_size)
+        metrics_by_context_size[int(context_size)] = _regression_metrics(y_true[mask], y_pred[mask])
+    return metrics_by_context_size
+
+
 def _evaluate_epoch(
     model: nn.Module,
     loader: DataLoader,
@@ -94,21 +109,24 @@ def _evaluate_epoch(
     mean: float,
     std: float,
     device: torch.device,
-) -> tuple[dict[str, float], np.ndarray, np.ndarray]:
+) -> tuple[dict[str, float], np.ndarray, np.ndarray, np.ndarray]:
     model.eval()
-    preds: list[np.ndarray] = []
+    predictions: list[np.ndarray] = []
     targets: list[np.ndarray] = []
+    context_sizes: list[np.ndarray] = []
     with torch.no_grad():
-        for x, y, _ in loader:
+        for x, y, step_index in loader:
             x = x.to(device)
             y = y.to(device)
             pred_norm = model(x).squeeze(1)
             pred_raw = pred_norm * float(std) + float(mean)
-            preds.append(pred_raw.detach().cpu().numpy())
+            predictions.append(pred_raw.detach().cpu().numpy())
             targets.append(y.detach().cpu().numpy())
-    y_pred = np.concatenate(preds, axis=0)
+            context_sizes.append(step_index.detach().cpu().numpy())
+    y_pred = np.concatenate(predictions, axis=0)
     y_true = np.concatenate(targets, axis=0)
-    return _regression_metrics(y_true, y_pred), y_true, y_pred
+    context_size_arr = np.concatenate(context_sizes, axis=0)
+    return _regression_metrics(y_true, y_pred), y_true, y_pred, context_size_arr
 
 
 def _train(
@@ -164,7 +182,7 @@ def _train(
     best_state: dict[str, torch.Tensor] | None = None
     best_epoch = -1
     best_rmse = float("inf")
-    no_improve = 0
+    epochs_without_improvement = 0
 
     train_hist: list[dict[str, float]] = []
     val_hist: list[dict[str, float]] = []
@@ -175,8 +193,10 @@ def _train(
     )
     for epoch in range(1, int(epochs) + 1):
         model.train()
-        batch_losses: list[float] = []
-        for x, y, _ in train_loader:
+        batch_loss_values: list[float] = []
+        context_sq_error_sum: dict[int, float] = defaultdict(float)
+        context_example_count: dict[int, int] = defaultdict(int)
+        for x, y, step_index in train_loader:
             x = x.to(device)
             y = y.to(device)
             y_norm = (y - label_mean) / label_std
@@ -187,12 +207,25 @@ def _train(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            batch_losses.append(float(loss.item()))
+            batch_loss_values.append(float(loss.item()))
 
-        train_loss = float(np.mean(batch_losses)) if batch_losses else float("nan")
-        train_hist.append({"epoch": float(epoch), "mse_norm": train_loss})
+            # Per-context-size MSE for wandb
+            squared_error_norm = (pred_norm.detach() - y_norm.detach()).pow(2).cpu().numpy()
+            batch_context_sizes = step_index.detach().cpu().numpy()
+            for context_size, error_value in zip(batch_context_sizes.tolist(), squared_error_norm.tolist()):
+                context_size_int = int(context_size)
+                context_sq_error_sum[context_size_int] += float(error_value)
+                context_example_count[context_size_int] += 1
 
-        val_metrics, _, _ = _evaluate_epoch(
+        train_mse_norm = float(np.mean(batch_loss_values)) if batch_loss_values else float("nan")
+        train_hist.append({"epoch": float(epoch), "mse_norm": train_mse_norm})
+        train_mse_norm_by_step = {
+            int(context_size): float(context_sq_error_sum[int(context_size)] / context_example_count[int(context_size)])
+            for context_size in sorted(context_example_count.keys())
+            if context_example_count[int(context_size)] > 0
+        }
+
+        val_metrics, y_true, y_pred, context_size_arr = _evaluate_epoch(
             model,
             val_loader,
             mean=label_mean,
@@ -200,33 +233,42 @@ def _train(
             device=device,
         )
         val_hist.append({"epoch": float(epoch), **val_metrics})
+        val_metrics_by_step = _regression_metrics_by_step(y_true, y_pred, context_size_arr)
         if wandb_run is not None:
-            wandb_run.log(
-                {
-                    "epoch": int(epoch),
-                    f"{label_name}/epoch": int(epoch),
-                    f"{label_name}/train_mse_norm": float(train_loss),
-                    f"{label_name}/val_mae": float(val_metrics["mae"]),
-                    f"{label_name}/val_rmse": float(val_metrics["rmse"]),
-                    f"{label_name}/val_r2": float(val_metrics["r2"]),
-                    f"{label_name}/val_pearson": float(val_metrics["pearson"]),
-                    f"{label_name}/val_spearman": float(val_metrics["spearman"]),
-                }
-            )
+            # Log global metrics plus per-context-size slices under stable key names.
+            wandb_payload: dict[str, float | int] = {
+                "epoch": int(epoch),
+                f"{label_name}/epoch": int(epoch),
+                f"{label_name}/train_mse_norm": float(train_mse_norm),
+                f"{label_name}/val_mae": float(val_metrics["mae"]),
+                f"{label_name}/val_rmse": float(val_metrics["rmse"]),
+                f"{label_name}/val_r2": float(val_metrics["r2"]),
+                f"{label_name}/val_pearson": float(val_metrics["pearson"]),
+                f"{label_name}/val_spearman": float(val_metrics["spearman"]),
+            }
+            for context_size, value in train_mse_norm_by_step.items():
+                wandb_payload[f"{label_name}/train_mse_norm_ctx_{int(context_size):02d}"] = float(value)
+            for context_size, metrics_step in val_metrics_by_step.items():
+                rmse = float(metrics_step["rmse"])
+                wandb_payload[f"{label_name}/val_mse_ctx_{int(context_size):02d}"] = float(rmse * rmse)
+                wandb_payload[f"{label_name}/val_rmse_ctx_{int(context_size):02d}"] = rmse
+                wandb_payload[f"{label_name}/val_mae_ctx_{int(context_size):02d}"] = float(metrics_step["mae"])
+            wandb_run.log(wandb_payload)
 
         val_rmse = float(val_metrics["rmse"])
         print(
             f"[{label_name}] epoch {epoch:03d}/{int(epochs)} "
-            f"train_mse_norm={train_loss:.6f} val_rmse={val_rmse:.4f} "
+            f"train_mse_norm={train_mse_norm:.6f} val_rmse={val_rmse:.4f} "
             f"val_mae={float(val_metrics['mae']):.4f}"
         )
         if val_rmse < best_rmse:
             best_rmse = val_rmse
             best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-            no_improve = 0
+            epochs_without_improvement = 0
         else:
-            no_improve += 1
+            epochs_without_improvement += 1
+            # Keep full learning curves in this script; early stopping can be re-enabled if needed.
             # if no_improve >= int(patience):
             #     break
 
