@@ -1,0 +1,34 @@
+version: 1
+
+# Run:
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_v2_val/experiment_acdc.yaml --run
+
+# Defaults applied to all experiments unless overridden per-entry.
+defaults:
+  prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
+  prompt_config_key: click_generator
+  prompt_iterations: 20
+  permutations: 100
+  use_mega_dataset: true
+  mega_dataset_name: ACDC
+  mega_dataset_split: val
+  no_visualize: true
+  device: cuda
+  shards: 4
+  experiment_seed: 23
+  eval_fraction: 0.33
+  eval_checkpoints: [1, 2, 4, 8, 10]
+  plan_b_subset_size: 10
+  plan_b_num_subsets: 10
+
+experiments:
+
+
+  - name: pretrained_baseline_random_v2_5
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/val/random_v2/experiment_acdc/pretrained_baseline5
+    plan_b_num_subsets: 10
+    plan: [B]
+
