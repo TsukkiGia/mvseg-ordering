@@ -16,3 +16,5 @@ perm_exploration.ipynb
 diffs.csv
 .wget-hsts
 .bash_history
+wandb/*
+experiments/offline_active_learning/sweeps/*

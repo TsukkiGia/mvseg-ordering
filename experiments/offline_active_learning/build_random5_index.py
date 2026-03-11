@@ -35,6 +35,20 @@ def _validate_source_columns(df: pd.DataFrame) -> None:
         raise ValueError(f"Missing required source columns: {sorted(missing)}")
 
 
+def _ensure_task_triple_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure mega_task/mega_label/mega_slicing exist for stable dataset loading."""
+    work = df.copy()
+    triple_cols = ["mega_task", "mega_label", "mega_slicing"]
+    missing = [col for col in triple_cols if col not in work.columns]
+    if missing:
+        raise ValueError(
+            "Plan B summaries are missing semantic task columns "
+            f"{missing}. Re-run experiments after migration so subset summaries "
+            "include mega_task/mega_label/mega_slicing."
+        )
+    return work
+
+
 def _sanity_check_index(index_df: pd.DataFrame) -> None:
     """Catch schema/trajectory errors early before training."""
     for keys, group in index_df.groupby(GROUP_KEYS, sort=False):
@@ -63,7 +77,7 @@ def collapse_duplicate_state_action_rows(
       - across-subset mode:  (family, task_id, context, candidate, step)
     """
 
-    group_cols = ["family", "task_id"]
+    group_cols = ["family", "task_id", "mega_task", "mega_label", "mega_slicing"]
     if not collapse_across_subsets:
         group_cols.append("subset_index")
     group_cols += [
@@ -126,6 +140,10 @@ def build_random5_index(
         raise ValueError(
             f"No rows found for policy '{policy}' in procedure={procedure}, ablation={ablation}, dataset={dataset}."
         )
+    work = _ensure_task_triple_columns(work)
+    work["mega_label"] = pd.to_numeric(work["mega_label"], errors="raise").astype(int)
+    work["mega_task"] = work["mega_task"].astype(str)
+    work["mega_slicing"] = work["mega_slicing"].astype(str)
 
     prompt_values = sorted(pd.to_numeric(work["prompt_limit"], errors="coerce").dropna().unique().tolist())
     prompt_ints = {int(v) for v in prompt_values}
@@ -139,6 +157,9 @@ def build_random5_index(
     for keys, group in group_frame.groupby(GROUP_KEYS, sort=False):
         family, task_id, subset_index, permutation_index = keys
         step_table = group.sort_values("image_index").reset_index(drop=True)
+        mega_task = str(step_table["mega_task"].iloc[0])
+        mega_label = int(step_table["mega_label"].iloc[0])
+        mega_slicing = str(step_table["mega_slicing"].iloc[0])
         image_ids = step_table["image_id"].astype(int).to_list()
         costs = step_table["iterations_used"].astype(float).to_numpy()
         # come up with the cost to go
@@ -153,6 +174,9 @@ def build_random5_index(
                 {
                     "family": str(family),
                     "task_id": str(task_id),
+                    "mega_task": mega_task,
+                    "mega_label": int(mega_label),
+                    "mega_slicing": mega_slicing,
                     "subset_index": int(subset_index),
                     "permutation_index": int(permutation_index),
                     "step_index": int(step_index),
