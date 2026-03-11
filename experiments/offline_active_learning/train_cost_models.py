@@ -19,7 +19,11 @@ from torch import nn
 from torch.utils.data import DataLoader
 import wandb
 
-from experiments.offline_active_learning.data_utils import OfflineCostDataset, read_index
+from experiments.offline_active_learning.data_utils import (
+    OfflineCostDataset,
+    parse_megamedical_task_id,
+    read_index,
+)
 from experiments.offline_active_learning.simple_cnn import SimpleRegressionCNN_Leaky
 
 
@@ -45,27 +49,6 @@ def _maybe_init_wandb(args: argparse.Namespace) -> Any | None:
     if str(args.wandb_entity).strip():
         init_kwargs["entity"] = str(args.wandb_entity).strip()
     return wandb.init(**init_kwargs)
-
-def _split_tasks(
-    task_ids: list[str],
-    *,
-    val_fraction: float,
-    seed: int,
-) -> tuple[list[str], list[str]]:
-    unique_tasks = sorted(set(task_ids))
-    if len(unique_tasks) < 2:
-        raise ValueError("Need at least 2 distinct task_ids for task-level train/val split.")
-
-    rng = np.random.default_rng(seed)
-    shuffled = list(unique_tasks)
-    rng.shuffle(shuffled)
-
-    n_val = max(1, int(round(len(shuffled) * float(val_fraction))))
-    n_val = min(n_val, len(shuffled) - 1)
-    val_tasks = sorted(shuffled[:n_val])
-    train_tasks = sorted(shuffled[n_val:])
-    return train_tasks, val_tasks
-
 
 def _regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
     y_true = np.asarray(y_true, dtype=np.float64)
@@ -136,6 +119,62 @@ def _validate_index_columns(index_rows: pd.DataFrame) -> None:
         raise ValueError(f"Index is missing required columns: {sorted(missing)}")
 
 
+def _filter_index_rows(
+    rows: pd.DataFrame,
+    *,
+    task_prefixes: list[str] | None,
+    labels: list[int] | None,
+    slicing: str | None,
+    split_name: str,
+) -> pd.DataFrame:
+    """Apply optional semantic task filters to an index table."""
+    filtered = rows.copy()
+    task_id_series = filtered["task_id"].astype(str)
+
+    parsed_by_task_id: dict[str, dict[str, object]] = {}
+    for task_id in sorted(task_id_series.unique()):
+        parsed_by_task_id[task_id] = parse_megamedical_task_id(str(task_id))
+    task_component_map = {
+        task_id: str(parsed["task_component"])
+        for task_id, parsed in parsed_by_task_id.items()
+    }
+    label_map = {
+        task_id: int(parsed["mega_label"])
+        for task_id, parsed in parsed_by_task_id.items()
+    }
+
+    if task_prefixes:
+        prefix_values = [str(prefix).strip() for prefix in task_prefixes if str(prefix).strip()]
+        task_components = task_id_series.map(task_component_map)
+        prefix_mask = task_components.apply(
+            lambda value: any(str(value).startswith(prefix) for prefix in prefix_values)
+        )
+        filtered = filtered[prefix_mask]
+        task_id_series = filtered["task_id"].astype(str)
+
+    if labels:
+        label_values = {int(label) for label in labels}
+        task_labels = task_id_series.map(label_map)
+        filtered = filtered[task_labels.isin(label_values)]
+        task_id_series = filtered["task_id"].astype(str)
+
+    if slicing:
+        slicing_token = f"_{str(slicing).strip()}_idx"
+        filtered = filtered[task_id_series.str.contains(slicing_token, regex=False, na=False)]
+
+    filtered = filtered.reset_index(drop=True)
+    print(
+        f"[filter:{split_name}] rows={len(rows):,}->{len(filtered):,} "
+        f"tasks={rows['task_id'].nunique()}->{filtered['task_id'].nunique()}"
+    )
+    if filtered.empty:
+        raise ValueError(
+            f"All rows were filtered out for split='{split_name}'. "
+            "Check --task-prefix/--label/--slicing values."
+        )
+    return filtered
+
+
 def _train(
     *,
     label_name: str,
@@ -148,8 +187,6 @@ def _train(
     batch_size: int,
     epochs: int,
     lr: float,
-    weight_decay: float,
-    patience: int,
     device: torch.device,
     out_path: Path,
     train_task_ids: list[str],
@@ -180,17 +217,16 @@ def _train(
     val_loader = DataLoader(val_ds, batch_size=int(batch_size), shuffle=False, num_workers=0)
     print(
         f"[{label_name}] train_rows={len(train_rows):,}, val_rows={len(val_rows):,}, "
-        f"batch_size={int(batch_size)}, epochs={int(epochs)}, patience={int(patience)}"
+        f"batch_size={int(batch_size)}, epochs={int(epochs)}"
     )
 
     model = SimpleRegressionCNN_Leaky(input_channels=19).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=float(lr))
+    optimizer = torch.optim.Adam(model.parameters(), lr=float(lr))
     loss_fn = nn.MSELoss()
 
     best_state: dict[str, torch.Tensor] | None = None
     best_epoch = -1
     best_rmse = float("inf")
-    epochs_without_improvement = 0
 
     train_hist: list[dict[str, float]] = []
     val_hist: list[dict[str, float]] = []
@@ -296,12 +332,6 @@ def _train(
             best_rmse = val_rmse
             best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-            epochs_without_improvement = 0
-        else:
-            epochs_without_improvement += 1
-            # Keep full learning curves in this script; early stopping can be re-enabled if needed.
-            # if no_improve >= int(patience):
-            #     break
 
     if best_state is None:
         raise RuntimeError(f"No checkpoint captured for label '{label_name}'.")
@@ -336,24 +366,43 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--val-index-path",
         type=Path,
-        default=None,
-        help="Optional external validation index path. If set, task-level split is skipped.",
+        required=True,
+        help="Validation index path (.csv or .parquet).",
     )
     parser.add_argument("--encoder-split", default="train", help="MegaMedical split to load image/mask tensors from.")
     parser.add_argument(
         "--val-encoder-split",
-        default=None,
-        help="Optional MegaMedical split for validation index rows (defaults to 'val' when --val-index-path is used).",
+        default="val",
+        help="MegaMedical split for validation index rows.",
     )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--seed", type=int, default=23)
-    parser.add_argument("--val-fraction", type=float, default=0.2)
-    parser.add_argument("--patience", type=int, default=8)
     parser.add_argument("--dataset-seed", type=int, default=42)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--task-prefix",
+        action="append",
+        default=None,
+        help=(
+            "Keep only rows whose parsed task component starts with this prefix. "
+            "Example: BUID_Benign_Ultrasound_0. Repeat to pass multiple values."
+        ),
+    )
+    parser.add_argument(
+        "--label",
+        action="append",
+        type=int,
+        default=None,
+        help="Keep only rows with this parsed label id. Repeat to pass multiple values.",
+    )
+    parser.add_argument(
+        "--slicing",
+        choices=["maxslice", "midslice"],
+        default=None,
+        help="Keep only rows for one slicing type based on task_id naming.",
+    )
     parser.add_argument("--wandb-project", default="mvseg-offline-active-learning")
     parser.add_argument("--wandb-run-name", default="")
     parser.add_argument("--wandb-entity", default="")
@@ -379,46 +428,42 @@ def main() -> None:
         f"[data] Loaded train index rows={len(train_index_rows):,} "
         f"tasks={train_index_rows['task_id'].nunique()}"
     )
+    train_index_rows = _filter_index_rows(
+        train_index_rows,
+        task_prefixes=args.task_prefix,
+        labels=args.label,
+        slicing=args.slicing,
+        split_name="train",
+    )
 
     train_data_split = str(args.encoder_split)
-    if args.val_index_path is not None:
-        val_data_split = str(args.val_encoder_split) if args.val_encoder_split is not None else "val"
-    else:
-        val_data_split = str(args.encoder_split)
+    val_data_split = str(args.val_encoder_split)
 
-    if args.val_index_path is not None:
-        print(f"[data] Reading validation index from {args.val_index_path}...")
-        val_index_rows = read_index(args.val_index_path)
-        _validate_index_columns(val_index_rows)
-        print(
-            f"[data] Loaded val index rows={len(val_index_rows):,} "
-            f"tasks={val_index_rows['task_id'].nunique()}"
-        )
+    print(f"[data] Reading validation index from {args.val_index_path}...")
+    val_index_rows = read_index(args.val_index_path)
+    _validate_index_columns(val_index_rows)
+    print(
+        f"[data] Loaded val index rows={len(val_index_rows):,} "
+        f"tasks={val_index_rows['task_id'].nunique()}"
+    )
+    val_index_rows = _filter_index_rows(
+        val_index_rows,
+        task_prefixes=args.task_prefix,
+        labels=args.label,
+        slicing=args.slicing,
+        split_name="val",
+    )
 
-        train_rows = train_index_rows.reset_index(drop=True)
-        val_rows = val_index_rows.reset_index(drop=True)
-        train_tasks = sorted(train_rows["task_id"].astype(str).unique().tolist())
-        val_tasks = sorted(val_rows["task_id"].astype(str).unique().tolist())
-        if train_rows.empty or val_rows.empty:
-            raise ValueError("External train/val index inputs produced empty rows.")
-        print(
-            f"[split] external val index enabled | train_tasks={len(train_tasks)} "
-            f"val_tasks={len(val_tasks)} train_rows={len(train_rows):,} val_rows={len(val_rows):,}"
-        )
-    else:
-        train_tasks, val_tasks = _split_tasks(
-            train_index_rows["task_id"].astype(str).tolist(),
-            val_fraction=float(args.val_fraction),
-            seed=int(args.seed),
-        )
-        train_rows = train_index_rows[train_index_rows["task_id"].isin(train_tasks)].reset_index(drop=True)
-        val_rows = train_index_rows[train_index_rows["task_id"].isin(val_tasks)].reset_index(drop=True)
-        if train_rows.empty or val_rows.empty:
-            raise ValueError("Train/val split produced empty rows; check val_fraction and source index.")
-        print(
-            f"[split] task split | train_tasks={len(train_tasks)} val_tasks={len(val_tasks)} "
-            f"train_rows={len(train_rows):,} val_rows={len(val_rows):,}"
-        )
+    train_rows = train_index_rows.reset_index(drop=True)
+    val_rows = val_index_rows.reset_index(drop=True)
+    train_tasks = sorted(train_rows["task_id"].astype(str).unique().tolist())
+    val_tasks = sorted(val_rows["task_id"].astype(str).unique().tolist())
+    if train_rows.empty or val_rows.empty:
+        raise ValueError("External train/val index inputs produced empty rows.")
+    print(
+        f"[split] external val index | train_tasks={len(train_tasks)} "
+        f"val_tasks={len(val_tasks)} train_rows={len(train_rows):,} val_rows={len(val_rows):,}"
+    )
     print(f"[split] train_data_split={train_data_split} val_data_split={val_data_split}")
 
     out_dir = Path(args.out_dir)
@@ -447,8 +492,6 @@ def main() -> None:
             batch_size=int(args.batch_size),
             epochs=int(args.epochs),
             lr=float(args.lr),
-            weight_decay=float(args.weight_decay),
-            patience=int(args.patience),
             device=device,
             out_path=model_path,
             train_task_ids=train_tasks,
@@ -478,8 +521,13 @@ def main() -> None:
         "train_data_split": train_data_split,
         "val_data_split": val_data_split,
         "seed": int(args.seed),
-        "val_index_path": None if args.val_index_path is None else str(args.val_index_path),
-        "split_strategy": "external_val_index" if args.val_index_path is not None else "task_holdout",
+        "val_index_path": str(args.val_index_path),
+        "split_strategy": "external_val_index",
+        "task_filter": {
+            "task_prefixes": list(args.task_prefix or []),
+            "labels": list(args.label or []),
+            "slicing": args.slicing,
+        },
     }
     if wandb_run is not None:
         wandb_run.summary["n_train_rows"] = int(len(train_rows))

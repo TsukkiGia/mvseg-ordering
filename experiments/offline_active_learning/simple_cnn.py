@@ -7,7 +7,6 @@ import torch.nn as nn
 class SimpleRegressionCNN_Leaky(nn.Module):
     def __init__(self, input_channels: int = 19):
         super(SimpleRegressionCNN_Leaky, self).__init__()
-
         self.block1 = nn.Sequential(
             nn.Conv2d(input_channels, 32, kernel_size=3, padding=1),
             nn.GroupNorm(1, 32),
