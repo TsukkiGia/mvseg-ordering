@@ -1,0 +1,21 @@
+{
+  "train_task_ids": [
+    "BUID/BUID_Benign_Ultrasound_0_label0_maxslice_idx654",
+    "BUID/BUID_Benign_Ultrasound_0_label0_midslice_idx29",
+    "BUID/BUID_Malignant_Ultrasound_0_label0_maxslice_idx653",
+    "BUID/BUID_Malignant_Ultrasound_0_label0_midslice_idx28"
+  ],
+  "val_task_ids": [
+    "BUID/BUID_Benign_Ultrasound_0_label0_maxslice_idx654",
+    "BUID/BUID_Benign_Ultrasound_0_label0_midslice_idx29",
+    "BUID/BUID_Malignant_Ultrasound_0_label0_maxslice_idx653",
+    "BUID/BUID_Malignant_Ultrasound_0_label0_midslice_idx28"
+  ],
+  "n_train_rows": 34504,
+  "n_val_rows": 34504,
+  "train_data_split": "train",
+  "val_data_split": "train",
+  "seed": 23,
+  "val_index_path": "experiments/offline_active_learning/random5_index_buid_train.csv",
+  "split_strategy": "external_val_index"
+}
