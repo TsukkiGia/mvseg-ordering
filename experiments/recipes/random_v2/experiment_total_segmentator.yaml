@@ -13,7 +13,6 @@ defaults:
   mega_dataset_name: TotalSegmentator
   mega_slicing: maxslice
   mega_axis: 2
-  mega_dataset_limit: 50
   no_visualize: true
   device: cuda
   shards: 4

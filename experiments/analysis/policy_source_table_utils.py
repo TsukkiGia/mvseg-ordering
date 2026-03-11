@@ -21,6 +21,12 @@ def _sanitize_filename_token(value: str) -> str:
     return token.strip("_") or "value"
 
 
+def _format_subset_key(key_row: pd.Series, subset_keys: Sequence[str]) -> str:
+    """Render subset key fields for readable diagnostics."""
+    parts = [f"{key}={key_row[key]}" for key in subset_keys]
+    return " | ".join(parts)
+
+
 def default_output_path(
     *,
     repo_root: Path,
@@ -74,13 +80,13 @@ def assert_consistent_subset_image_ids(
             source_parts.append(f"{source_label} {image_preview}")
 
         detail_lines.append(
-            f"{key_row['family']} | {key_row['task_id']} | subset={int(key_row['subset_index'])} -> "
+            f"{_format_subset_key(key_row, subset_keys)} -> "
             + ", ".join(source_parts)
         )
 
     raise ValueError(
         "Found inconsistent subset image_id definitions across procedure/ablation sources. "
-        "The same (family, task_id, subset_index) must map to the same image IDs.\n"
+        "The same subset key must map to the same image IDs.\n"
         + "\n".join(detail_lines)
     )
 
@@ -124,7 +130,7 @@ def collapse_duplicate_policy_rows(
                 for _, source_row in source_rows.iterrows()
             )
             detail_lines.append(
-                f"{key_row['family']} | {key_row['task_id']} | subset={int(key_row['subset_index'])} "
+                f"{_format_subset_key(key_row, subset_keys)} "
                 f"| policy={key_row['policy_name']} -> {source_parts}"
             )
         raise ValueError(
