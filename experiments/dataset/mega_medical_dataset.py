@@ -35,24 +35,31 @@ def load_data(
     )
     dl.init()
 
-    if task is not None and label is not None and slicing is not None:
-        matches = dl.task_df.query("task == @task and label == @label and slicing == @slicing")
+    has_triple = task is not None and label is not None and slicing is not None
+    if not has_triple:
+        raise ValueError(
+            "MegaMedicalDataset now requires explicit (task, label, slicing). "
+            "Global dataset_target/idx lookup is disabled because those indices are brittle."
+        )
 
-        if matches.empty:
-            raise ValueError(
-                f"No MegaMedical task found for task={task}, label={label}, slicing={slicing}."
-            )
-        if len(matches) > 1:
-            raise ValueError(
-                f"Multiple MegaMedical tasks matched task={task}, label={label}, slicing={slicing}."
-            )
-        target_key = matches.index[0]
-    else:
-        if dataset_target is None:
-            raise ValueError(
-                "dataset_target must be provided when task, label, and slicing are not all specified."
-            )
-        target_key = dataset_target
+    if dataset_target is not None:
+        # Keep this check explicit so legacy callers fail loudly instead of silently
+        # loading a potentially wrong task when index assignments drift.
+        raise ValueError(
+            "dataset_target is no longer supported. "
+            "Pass task, label, and slicing instead."
+        )
+
+    matches = dl.task_df.query("task == @task and label == @label and slicing == @slicing")
+    if matches.empty:
+        raise ValueError(
+            f"No MegaMedical task found for task={task}, label={label}, slicing={slicing}."
+        )
+    if len(matches) > 1:
+        raise ValueError(
+            f"Multiple MegaMedical tasks matched task={task}, label={label}, slicing={slicing}."
+        )
+    target_key = int(matches.index[0])
 
     if target_key not in dl.target_datasets:
         valid_keys = sorted(dl.target_datasets.keys())
@@ -75,6 +82,15 @@ class MegaMedicalDataset(Dataset):
     dataset_size: Optional[int] = None
 
     def __post_init__(self):
+        if self.dataset_target is not None:
+            raise ValueError(
+                "dataset_target is no longer supported. "
+                "Construct MegaMedicalDataset with task, label, and slicing."
+            )
+        if self.task is None or self.label is None or self.slicing is None:
+            raise ValueError(
+                "MegaMedicalDataset requires explicit task, label, and slicing."
+            )
         self._data = load_data(
             self.dataset_target,
             self.split,

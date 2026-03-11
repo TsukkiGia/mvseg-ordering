@@ -33,9 +33,9 @@ def _get_loader(split: str) -> MultiBinarySegment2D:
     return loader
 
 
-def _to_task_id(*, family: str, task: str, label: int, slicing: str, target_index: int) -> str:
+def _to_task_id(*, family: str, task: str, label: int, slicing: str) -> str:
     task_component = str(task).replace("/", "_")
-    return f"{family}/{task_component}_label{int(label)}_{slicing}_idx{int(target_index)}"
+    return f"{family}/{task_component}_label{int(label)}_{slicing}"
 
 
 def get_dataset_task_datasets(
@@ -59,16 +59,17 @@ def get_dataset_task_datasets(
         raise ValueError(f"No tasks found for dataset_name='{family}' and split='{split}'.")
 
     datasets_by_task_id: dict[str, MegaMedicalDataset] = {}
-    for target_index, task_row in family_tasks.sort_index().iterrows():
+    for _, task_row in family_tasks.sort_index().iterrows():
         task_id = _to_task_id(
             family=family,
             task=str(task_row["task"]),
             label=int(task_row["label"]),
             slicing=str(task_row["slicing"]),
-            target_index=int(target_index),
         )
         datasets_by_task_id[task_id] = MegaMedicalDataset(
-            dataset_target=int(target_index),
+            task=str(task_row["task"]),
+            label=int(task_row["label"]),
+            slicing=str(task_row["slicing"]),
             split=split,
             seed=seed,
             dataset_size=dataset_size,

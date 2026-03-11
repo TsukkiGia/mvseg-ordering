@@ -65,6 +65,9 @@ class ExperimentSetup:
     device: str = "cpu"
     task_name: Optional[str] = None
     ordering_config_path: Optional[Path] = None
+    mega_task: Optional[str] = None
+    mega_label: Optional[int] = None
+    mega_slicing: Optional[str] = None
 
 
 
@@ -133,6 +136,9 @@ def write_run_metadata(
         "run": {
             "script_dir": str(setup.script_dir),
             "task_name": setup.task_name,
+            "mega_task": setup.mega_task,
+            "mega_label": setup.mega_label,
+            "mega_slicing": setup.mega_slicing,
             "seed": setup.seed,
             "subset_size": setup.subset_size,
             "subset_count": setup.subset_count,
@@ -726,6 +732,12 @@ def run_plan_B(setup: ExperimentSetup):
     extra_columns = {}
     if setup.task_name:
         extra_columns["task_name"] = setup.task_name
+    if setup.mega_task is not None:
+        extra_columns["mega_task"] = setup.mega_task
+    if setup.mega_label is not None:
+        extra_columns["mega_label"] = int(setup.mega_label)
+    if setup.mega_slicing is not None:
+        extra_columns["mega_slicing"] = setup.mega_slicing
     aggregate_subset_results(plan_b_root, extra_columns=extra_columns or None)
     generate_plan_b_outputs(plan_b_root)
 
@@ -800,7 +812,7 @@ def parse_args() -> argparse.Namespace:
         "--mega-target-index",
         type=int,
         default=None,
-        help="Index key within MultiBinarySegment2D.target_datasets to load.",
+        help="Deprecated and unsupported. Use --mega-task/--mega-label/--mega-slicing.",
     )
     parser.add_argument(
         "--mega-task",
@@ -845,13 +857,18 @@ def parse_args() -> argparse.Namespace:
 
     if args.use_mega_dataset:
         query = (args.mega_task, args.mega_label, args.mega_slicing)
+        if args.mega_target_index is not None:
+            parser.error(
+                "--mega-target-index is no longer supported; "
+                "provide --mega-task, --mega-label, and --mega-slicing."
+            )
         if any(v is not None for v in query) and not all(v is not None for v in query):
             parser.error(
-                "Provide task, label, and slicing together for MegaMedical lookup, or omit all three."
+                "Provide --mega-task, --mega-label, and --mega-slicing together."
             )
-        if all(v is None for v in query) and args.mega_target_index is None:
+        if all(v is None for v in query):
             parser.error(
-                "Provide --mega-target-index or a full task/label/slicing triple when using MegaMedicalDataset."
+                "Provide --mega-task, --mega-label, and --mega-slicing when using MegaMedicalDataset."
             )
     return args
 
@@ -860,7 +877,6 @@ if __name__ == "__main__":
     args = parse_args()
     if args.use_mega_dataset:
         support_dataset = MegaMedicalDataset(
-            dataset_target=args.mega_target_index,
             task=args.mega_task,
             label=args.mega_label,
             slicing=args.mega_slicing,
@@ -892,7 +908,10 @@ if __name__ == "__main__":
         shards=args.shards,
         device=args.device,
         eval_fraction=args.eval_fraction,
-        eval_checkpoints=args.eval_checkpoints
+        eval_checkpoints=args.eval_checkpoints,
+        mega_task=args.mega_task,
+        mega_label=args.mega_label,
+        mega_slicing=args.mega_slicing,
     )
 
     run_experiment(default_setup)
