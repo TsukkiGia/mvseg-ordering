@@ -21,7 +21,6 @@ import wandb
 
 from experiments.offline_active_learning.data_utils import (
     OfflineCostDataset,
-    parse_megamedical_task_id,
     read_index,
 )
 from experiments.offline_active_learning.simple_cnn import SimpleRegressionCNN_Leaky
@@ -113,7 +112,17 @@ def _evaluate_epoch(
 
 
 def _validate_index_columns(index_rows: pd.DataFrame) -> None:
-    required = {"task_id", "y_immediate", "y_ctg", "context_image_ids", "candidate_image_id", "step_index"}
+    required = {
+        "task_id",
+        "mega_task",
+        "mega_label",
+        "mega_slicing",
+        "y_immediate",
+        "y_ctg",
+        "context_image_ids",
+        "candidate_image_id",
+        "step_index",
+    }
     missing = required - set(index_rows.columns)
     if missing:
         raise ValueError(f"Index is missing required columns: {sorted(missing)}")
@@ -129,38 +138,27 @@ def _filter_index_rows(
 ) -> pd.DataFrame:
     """Apply optional semantic task filters to an index table."""
     filtered = rows.copy()
-    task_id_series = filtered["task_id"].astype(str)
-
-    parsed_by_task_id: dict[str, dict[str, object]] = {}
-    for task_id in sorted(task_id_series.unique()):
-        parsed_by_task_id[task_id] = parse_megamedical_task_id(str(task_id))
-    task_component_map = {
-        task_id: str(parsed["task_component"])
-        for task_id, parsed in parsed_by_task_id.items()
-    }
-    label_map = {
-        task_id: int(parsed["mega_label"])
-        for task_id, parsed in parsed_by_task_id.items()
-    }
 
     if task_prefixes:
         prefix_values = [str(prefix).strip() for prefix in task_prefixes if str(prefix).strip()]
-        task_components = task_id_series.map(task_component_map)
+        task_components = (
+            filtered["mega_task"]
+            .astype(str)
+            .str.replace("/", "_", regex=False)
+        )
         prefix_mask = task_components.apply(
             lambda value: any(str(value).startswith(prefix) for prefix in prefix_values)
         )
         filtered = filtered[prefix_mask]
-        task_id_series = filtered["task_id"].astype(str)
 
     if labels:
         label_values = {int(label) for label in labels}
-        task_labels = task_id_series.map(label_map)
-        filtered = filtered[task_labels.isin(label_values)]
-        task_id_series = filtered["task_id"].astype(str)
+        filtered = filtered[filtered["mega_label"].astype(int).isin(label_values)]
 
     if slicing:
-        slicing_token = f"_{str(slicing).strip()}_idx"
-        filtered = filtered[task_id_series.str.contains(slicing_token, regex=False, na=False)]
+        filtered = filtered[
+            filtered["mega_slicing"].astype(str) == str(slicing).strip()
+        ]
 
     filtered = filtered.reset_index(drop=True)
     print(
@@ -401,7 +399,7 @@ def parse_args() -> argparse.Namespace:
         "--slicing",
         choices=["maxslice", "midslice"],
         default=None,
-        help="Keep only rows for one slicing type based on task_id naming.",
+        help="Keep only rows for one slicing type.",
     )
     parser.add_argument("--wandb-project", default="mvseg-offline-active-learning")
     parser.add_argument("--wandb-run-name", default="")

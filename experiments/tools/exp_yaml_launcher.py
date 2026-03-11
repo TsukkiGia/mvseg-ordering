@@ -93,15 +93,26 @@ def _validate_megamedical_cfg(cfg: dict[str, Any]) -> None:
 
     idx = cfg.get("mega_target_index")
     triple = (cfg.get("mega_task"), cfg.get("mega_label"), cfg.get("mega_slicing"))
+    has_any_triple = any(v is not None for v in triple)
+    has_full_triple = all(v is not None for v in triple)
 
-    # Full specification provided – nothing else to verify.
-    if idx is not None or any(v is not None for v in triple):
+    if idx is not None:
+        raise ValueError(
+            "mega_target_index is no longer supported. "
+            "Use explicit mega_task, mega_label, and mega_slicing."
+        )
+    if has_any_triple and not has_full_triple:
+        raise ValueError(
+            "Provide mega_task, mega_label, and mega_slicing together."
+        )
+    if has_full_triple:
         return
 
     # Automatic expansion without any filters is not allowed.
-    if not cfg.get("mega_dataset_name") and not any(v is not None for v in triple):
+    if not cfg.get("mega_dataset_name"):
         raise ValueError(
-            "Invalid MegaMedical config: provide mega_dataset_name or explicit mega_target_index/triple when using MegaMedical."
+            "Invalid MegaMedical config: provide mega_dataset_name for auto-expansion "
+            "or explicit mega_task/mega_label/mega_slicing."
         )
 
 
@@ -115,9 +126,9 @@ def expand_megamedical_entry(
         print(f"[expand] Non-MegaMedical entry: name={exp.get('name','exp')}")
         return [exp], mega_loader
 
-    # Explicit target already provided – nothing to expand.
-    if merged.get("mega_target_index") is not None:
-        print(f"[expand] Explicit MegaMedical target provided: idx={merged.get('mega_target_index')}")
+    # Explicit triple already provided – nothing to expand.
+    triple = (merged.get("mega_task"), merged.get("mega_label"), merged.get("mega_slicing"))
+    if all(v is not None for v in triple):
         return [exp], mega_loader
 
     dataset_name = merged.get("mega_dataset_name")
@@ -178,16 +189,15 @@ def expand_megamedical_entry(
     expanded: list[dict[str, Any]] = []
     
     # for each task make a copy of shared elements + task specific things
-    for idx, row in subset.head(dataset_limit).iterrows():
+    for _, row in subset.head(dataset_limit).iterrows():
         base_component = row["task"].replace("/", "_")
-        task_component = f"{base_component}_label{int(row['label'])}_{row['slicing']}_idx{int(idx)}"
+        task_component = f"{base_component}_label{int(row['label'])}_{row['slicing']}"
         target_dir = base_root / task_component / ablation_dir
 
         cfg = dict(exp)
         cfg.update(
             # Preserve the resolved split so build_setup can honor it.
             mega_dataset_split=dataset_split,
-            mega_target_index=int(idx),
             mega_task=row["task"],
             mega_label=int(row["label"]),
             mega_slicing=row["slicing"],
@@ -197,7 +207,7 @@ def expand_megamedical_entry(
         )
 
         base_name = exp.get("name", "exp")
-        cfg["name"] = f"{base_name}_{task_component}_{idx}"
+        cfg["name"] = f"{base_name}_{task_component}"
         expanded.append(cfg)
     print(f"[expand] Expanded MegaMedical entry into {len(expanded)} configs (dataset={dataset_name}, split={dataset_split})")
     return expanded, loader
@@ -231,7 +241,6 @@ def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> Exp
     # Resolve dataset
     if cfg.get("use_mega_dataset", False):
         support_dataset = MegaMedicalDataset(
-            dataset_target=cfg.get("mega_target_index"),
             task=cfg.get("mega_task"),
             label=cfg.get("mega_label"),
             slicing=cfg.get("mega_slicing"),
@@ -280,6 +289,9 @@ def build_setup(defaults: dict[str, Any], exp: dict[str, Any], plan: str) -> Exp
         eval_checkpoints=eval_checkpoints,
         task_name=cfg.get("task_name"),
         ordering_config_path=resolved_ordering_path,
+        mega_task=cfg.get("mega_task"),
+        mega_label=cfg.get("mega_label"),
+        mega_slicing=cfg.get("mega_slicing"),
     )
     return setup
 
