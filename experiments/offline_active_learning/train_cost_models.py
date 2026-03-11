@@ -129,13 +129,21 @@ def _evaluate_epoch(
     return _regression_metrics(y_true, y_pred), y_true, y_pred, context_size_arr
 
 
+def _validate_index_columns(index_rows: pd.DataFrame) -> None:
+    required = {"task_id", "y_immediate", "y_ctg", "context_image_ids", "candidate_image_id", "step_index"}
+    missing = required - set(index_rows.columns)
+    if missing:
+        raise ValueError(f"Index is missing required columns: {sorted(missing)}")
+
+
 def _train(
     *,
     label_name: str,
     label_col: str,
     train_rows: pd.DataFrame,
     val_rows: pd.DataFrame,
-    data_split: str,
+    train_data_split: str,
+    val_data_split: str,
     dataset_seed: int,
     batch_size: int,
     epochs: int,
@@ -158,13 +166,13 @@ def _train(
     train_ds = OfflineCostDataset(
         train_rows,
         label_col=label_col,
-        data_split=data_split,
+        data_split=train_data_split,
         dataset_seed=dataset_seed,
     )
     val_ds = OfflineCostDataset(
         val_rows,
         label_col=label_col,
-        data_split=data_split,
+        data_split=val_data_split,
         dataset_seed=dataset_seed,
     )
 
@@ -176,7 +184,7 @@ def _train(
     )
 
     model = SimpleRegressionCNN_Leaky(input_channels=19).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=float(lr), weight_decay=float(weight_decay))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=float(lr))
     loss_fn = nn.MSELoss()
 
     best_state: dict[str, torch.Tensor] | None = None
@@ -232,7 +240,25 @@ def _train(
             std=label_std,
             device=device,
         )
-        val_hist.append({"epoch": float(epoch), **val_metrics})
+        # Normalized validation error (same scale as train_mse_norm).
+        val_squared_error_norm = ((y_pred - y_true) / float(label_std)) ** 2
+        val_mse_norm = float(np.mean(val_squared_error_norm))
+        val_rmse_norm = float(np.sqrt(val_mse_norm))
+
+        # Per-context-size normalized validation error.
+        val_mse_norm_by_step: dict[int, float] = {}
+        for context_size in sorted(np.unique(context_size_arr).tolist()):
+            mask = context_size_arr == int(context_size)
+            val_mse_norm_by_step[int(context_size)] = float(np.mean(val_squared_error_norm[mask]))
+
+        val_hist.append(
+            {
+                "epoch": float(epoch),
+                **val_metrics,
+                "mse_norm": float(val_mse_norm),
+                "rmse_norm": float(val_rmse_norm),
+            }
+        )
         val_metrics_by_step = _regression_metrics_by_step(y_true, y_pred, context_size_arr)
         if wandb_run is not None:
             # Log global metrics plus per-context-size slices under stable key names.
@@ -240,6 +266,8 @@ def _train(
                 "epoch": int(epoch),
                 f"{label_name}/epoch": int(epoch),
                 f"{label_name}/train_mse_norm": float(train_mse_norm),
+                f"{label_name}/val_mse_norm": float(val_mse_norm),
+                f"{label_name}/val_rmse_norm": float(val_rmse_norm),
                 f"{label_name}/val_mae": float(val_metrics["mae"]),
                 f"{label_name}/val_rmse": float(val_metrics["rmse"]),
                 f"{label_name}/val_r2": float(val_metrics["r2"]),
@@ -248,6 +276,9 @@ def _train(
             }
             for context_size, value in train_mse_norm_by_step.items():
                 wandb_payload[f"{label_name}/train_mse_norm_ctx_{int(context_size):02d}"] = float(value)
+            for context_size, value in val_mse_norm_by_step.items():
+                wandb_payload[f"{label_name}/val_mse_norm_ctx_{int(context_size):02d}"] = float(value)
+                wandb_payload[f"{label_name}/val_rmse_norm_ctx_{int(context_size):02d}"] = float(np.sqrt(value))
             for context_size, metrics_step in val_metrics_by_step.items():
                 rmse = float(metrics_step["rmse"])
                 wandb_payload[f"{label_name}/val_mse_ctx_{int(context_size):02d}"] = float(rmse * rmse)
@@ -288,7 +319,8 @@ def _train(
         "best_val_rmse": float(best_rmse),
         "train_task_ids": train_task_ids,
         "val_task_ids": val_task_ids,
-        "data_split": data_split,
+        "train_data_split": train_data_split,
+        "val_data_split": val_data_split,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, out_path)
@@ -301,7 +333,18 @@ def _train(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train immediate and cost-to-go offline cost models.")
     parser.add_argument("--index-path", type=Path, required=True, help="Offline index path (.csv or .parquet).")
+    parser.add_argument(
+        "--val-index-path",
+        type=Path,
+        default=None,
+        help="Optional external validation index path. If set, task-level split is skipped.",
+    )
     parser.add_argument("--encoder-split", default="train", help="MegaMedical split to load image/mask tensors from.")
+    parser.add_argument(
+        "--val-encoder-split",
+        default=None,
+        help="Optional MegaMedical split for validation index rows (defaults to 'val' when --val-index-path is used).",
+    )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -330,26 +373,53 @@ def main() -> None:
     wandb_run = _maybe_init_wandb(args)
 
     print(f"[data] Reading index from {args.index_path}...")
-    rows = read_index(args.index_path)
-    print(f"[data] Loaded {len(rows):,} rows with {rows['task_id'].nunique()} tasks.")
-    required = {"task_id", "y_immediate", "y_ctg", "context_image_ids", "candidate_image_id", "step_index"}
-    missing = required - set(rows.columns)
-    if missing:
-        raise ValueError(f"Index is missing required columns: {sorted(missing)}")
-
-    train_tasks, val_tasks = _split_tasks(
-        rows["task_id"].astype(str).tolist(),
-        val_fraction=float(args.val_fraction),
-        seed=int(args.seed),
-    )
-    train_rows = rows[rows["task_id"].isin(train_tasks)].reset_index(drop=True)
-    val_rows = rows[rows["task_id"].isin(val_tasks)].reset_index(drop=True)
-    if train_rows.empty or val_rows.empty:
-        raise ValueError("Train/val split produced empty rows; check val_fraction and source index.")
+    train_index_rows = read_index(args.index_path)
+    _validate_index_columns(train_index_rows)
     print(
-        f"[split] train_tasks={len(train_tasks)} val_tasks={len(val_tasks)} "
-        f"train_rows={len(train_rows):,} val_rows={len(val_rows):,}"
+        f"[data] Loaded train index rows={len(train_index_rows):,} "
+        f"tasks={train_index_rows['task_id'].nunique()}"
     )
+
+    train_data_split = str(args.encoder_split)
+    if args.val_index_path is not None:
+        val_data_split = str(args.val_encoder_split) if args.val_encoder_split is not None else "val"
+    else:
+        val_data_split = str(args.encoder_split)
+
+    if args.val_index_path is not None:
+        print(f"[data] Reading validation index from {args.val_index_path}...")
+        val_index_rows = read_index(args.val_index_path)
+        _validate_index_columns(val_index_rows)
+        print(
+            f"[data] Loaded val index rows={len(val_index_rows):,} "
+            f"tasks={val_index_rows['task_id'].nunique()}"
+        )
+
+        train_rows = train_index_rows.reset_index(drop=True)
+        val_rows = val_index_rows.reset_index(drop=True)
+        train_tasks = sorted(train_rows["task_id"].astype(str).unique().tolist())
+        val_tasks = sorted(val_rows["task_id"].astype(str).unique().tolist())
+        if train_rows.empty or val_rows.empty:
+            raise ValueError("External train/val index inputs produced empty rows.")
+        print(
+            f"[split] external val index enabled | train_tasks={len(train_tasks)} "
+            f"val_tasks={len(val_tasks)} train_rows={len(train_rows):,} val_rows={len(val_rows):,}"
+        )
+    else:
+        train_tasks, val_tasks = _split_tasks(
+            train_index_rows["task_id"].astype(str).tolist(),
+            val_fraction=float(args.val_fraction),
+            seed=int(args.seed),
+        )
+        train_rows = train_index_rows[train_index_rows["task_id"].isin(train_tasks)].reset_index(drop=True)
+        val_rows = train_index_rows[train_index_rows["task_id"].isin(val_tasks)].reset_index(drop=True)
+        if train_rows.empty or val_rows.empty:
+            raise ValueError("Train/val split produced empty rows; check val_fraction and source index.")
+        print(
+            f"[split] task split | train_tasks={len(train_tasks)} val_tasks={len(val_tasks)} "
+            f"train_rows={len(train_rows):,} val_rows={len(val_rows):,}"
+        )
+    print(f"[split] train_data_split={train_data_split} val_data_split={val_data_split}")
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -371,7 +441,8 @@ def main() -> None:
             label_col=label_col,
             train_rows=train_rows,
             val_rows=val_rows,
-            data_split=str(args.encoder_split),
+            train_data_split=train_data_split,
+            val_data_split=val_data_split,
             dataset_seed=int(args.dataset_seed),
             batch_size=int(args.batch_size),
             epochs=int(args.epochs),
@@ -404,8 +475,11 @@ def main() -> None:
         "val_task_ids": val_tasks,
         "n_train_rows": int(len(train_rows)),
         "n_val_rows": int(len(val_rows)),
-        "data_split": str(args.encoder_split),
+        "train_data_split": train_data_split,
+        "val_data_split": val_data_split,
         "seed": int(args.seed),
+        "val_index_path": None if args.val_index_path is None else str(args.val_index_path),
+        "split_strategy": "external_val_index" if args.val_index_path is not None else "task_holdout",
     }
     if wandb_run is not None:
         wandb_run.summary["n_train_rows"] = int(len(train_rows))
