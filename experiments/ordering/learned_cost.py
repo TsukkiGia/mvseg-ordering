@@ -34,8 +34,6 @@ class LearnedCostOrderingConfig(AdaptiveOrderingConfig):
         self.device = torch.device(device)
 
         payload = torch.load(self.checkpoint_path, map_location="cpu")
-        self.label_name = str(payload.get("label_name", "unknown"))
-        self.label_col = str(payload.get("label_col", "unknown"))
         self.label_mean = float(payload.get("label_mean", 0.0))
         self.label_std = float(payload.get("label_std", 1.0))
         if self.label_std < 1e-6:
