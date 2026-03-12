@@ -11,7 +11,10 @@ import numpy as np
 import pandas as pd
 
 from experiments.analysis.planb_utils import load_planb_summaries
-from experiments.offline_active_learning.data_utils import write_index
+from experiments.offline_active_learning.data_utils import (
+    parse_megamedical_task_id,
+    write_index,
+)
 
 
 GROUP_KEYS = ["family", "task_id", "subset_index", "permutation_index"]
@@ -39,12 +42,52 @@ def _ensure_task_triple_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure mega_task/mega_label/mega_slicing exist for stable dataset loading."""
     work = df.copy()
     triple_cols = ["mega_task", "mega_label", "mega_slicing"]
-    missing = [col for col in triple_cols if col not in work.columns]
-    if missing:
+
+    # Older logs may not have semantic triple columns. Add empty placeholders so
+    # we can backfill from task_id.
+    for col in triple_cols:
+        if col not in work.columns:
+            work[col] = pd.NA
+
+    if "task_id" not in work.columns:
+        raise ValueError("Missing required column 'task_id'; cannot recover semantic task fields.")
+
+    # Parse each unique task_id once, then map back into missing fields.
+    unique_task_ids = sorted(work["task_id"].astype(str).dropna().unique().tolist())
+    parsed_by_task_id: dict[str, dict[str, object]] = {}
+    parse_errors: list[str] = []
+    for task_id in unique_task_ids:
+        try:
+            parsed_by_task_id[task_id] = parse_megamedical_task_id(task_id)
+        except ValueError as exc:
+            parse_errors.append(f"{task_id}: {exc}")
+
+    if parse_errors:
+        preview = "\n".join(parse_errors[:5])
         raise ValueError(
-            "Plan B summaries are missing semantic task columns "
-            f"{missing}. Re-run experiments after migration so subset summaries "
-            "include mega_task/mega_label/mega_slicing."
+            "Could not parse semantic task fields from task_id for some rows. "
+            "Please re-run experiments or fix task_id naming.\n"
+            f"{preview}"
+        )
+
+    def _is_blank(series: pd.Series) -> pd.Series:
+        blank_mask = series.isna()
+        if pd.api.types.is_string_dtype(series) or series.dtype == object:
+            blank_mask = blank_mask | series.astype(str).str.strip().eq("")
+        return blank_mask
+
+    for col in triple_cols:
+        parsed_values = work["task_id"].astype(str).map(
+            {task_id: parsed[col] for task_id, parsed in parsed_by_task_id.items()}
+        )
+        blank_mask = _is_blank(work[col])
+        work.loc[blank_mask, col] = parsed_values.loc[blank_mask]
+
+    still_missing = [col for col in triple_cols if work[col].isna().any()]
+    if still_missing:
+        raise ValueError(
+            "Unable to recover semantic task columns from task_id. "
+            f"Missing values remain in: {still_missing}."
         )
     return work
 
