@@ -21,6 +21,9 @@ from typing import Sequence
 class TrialConfig:
     lr: float
     batch_size: int
+    width_scale: float
+    dropout_prob: float
+    task_prefix: str | None
 
 
 def _parse_float_csv(value: str) -> list[float]:
@@ -37,15 +40,63 @@ def _parse_int_csv(value: str) -> list[int]:
     return [int(p) for p in parts]
 
 
+def _parse_str_csv(value: str) -> list[str]:
+    return [p.strip() for p in str(value).split(",") if p.strip()]
+
+
 def _all_trial_configs(
     *,
     lr_options: Sequence[float],
     batch_size_options: Sequence[int],
+    width_scale_options: Sequence[float],
+    dropout_options: Sequence[float],
+    task_prefix_options: Sequence[str | None],
 ) -> list[TrialConfig]:
     return [
-        TrialConfig(lr=float(lr), batch_size=int(bs))
-        for lr, bs in itertools.product(lr_options, batch_size_options)
+        TrialConfig(
+            lr=float(lr),
+            batch_size=int(bs),
+            width_scale=float(width_scale),
+            dropout_prob=float(dropout_prob),
+            task_prefix=(None if task_prefix is None else str(task_prefix)),
+        )
+        for lr, bs, width_scale, dropout_prob, task_prefix in itertools.product(
+            lr_options,
+            batch_size_options,
+            width_scale_options,
+            dropout_options,
+            task_prefix_options,
+        )
     ]
+
+
+def _float_slug(value: float) -> str:
+    text = f"{float(value):.6f}".rstrip("0").rstrip(".")
+    if not text:
+        text = "0"
+    return text.replace("-", "m").replace(".", "p")
+
+
+def _text_slug(value: str, *, max_len: int = 48) -> str:
+    cleaned = "".join(ch if ch.isalnum() else "_" for ch in str(value))
+    cleaned = "_".join(part for part in cleaned.split("_") if part)
+    if not cleaned:
+        return "none"
+    if len(cleaned) <= max_len:
+        return cleaned
+    return cleaned[:max_len]
+
+
+def _trial_name(cfg: TrialConfig, trial_index: int) -> str:
+    task_slug = "all" if cfg.task_prefix is None else _text_slug(cfg.task_prefix)
+    return (
+        f"trial_{int(trial_index):03d}"
+        f"_lr{_float_slug(cfg.lr)}"
+        f"_bs{int(cfg.batch_size)}"
+        f"_ws{_float_slug(cfg.width_scale)}"
+        f"_do{_float_slug(cfg.dropout_prob)}"
+        f"_tp{task_slug}"
+    )
 
 
 def _json_load(path: Path) -> dict:
@@ -84,12 +135,11 @@ def _run_trial(
     encoder_split: str,
     val_encoder_split: str | None,
     epochs: int,
-    width_scale: float,
     dataset_seed: int,
     device: str,
-    task_prefixes: Sequence[str] | None,
     labels: Sequence[int] | None,
     slicing: str | None,
+    no_filter: bool,
     wandb_mode: str,
     wandb_project: str,
     wandb_entity: str,
@@ -114,7 +164,9 @@ def _run_trial(
         "--lr",
         str(float(cfg.lr)),
         "--width-scale",
-        str(float(width_scale)),
+        str(float(cfg.width_scale)),
+        "--dropout-prob",
+        str(float(cfg.dropout_prob)),
         "--seed",
         str(int(seed)),
         "--dataset-seed",
@@ -132,18 +184,22 @@ def _run_trial(
     ]
     if val_encoder_split is not None and str(val_encoder_split).strip():
         cmd.extend(["--val-encoder-split", str(val_encoder_split).strip()])
-    if task_prefixes:
-        for task_prefix in task_prefixes:
-            cmd.extend(["--task-prefix", str(task_prefix)])
-    if labels:
-        for label in labels:
-            cmd.extend(["--label", str(int(label))])
-    if slicing is not None and str(slicing).strip():
-        cmd.extend(["--slicing", str(slicing).strip()])
+    if not no_filter:
+        if cfg.task_prefix is not None and str(cfg.task_prefix).strip():
+            cmd.extend(["--task-prefix", str(cfg.task_prefix).strip()])
+        if labels:
+            for label in labels:
+                cmd.extend(["--label", str(int(label))])
+        if slicing is not None and str(slicing).strip():
+            cmd.extend(["--slicing", str(slicing).strip()])
     if str(wandb_entity).strip():
         cmd.extend(["--wandb-entity", str(wandb_entity).strip()])
 
-    print(f"[trial] {trial_name} -> lr={cfg.lr} bs={cfg.batch_size} seed={seed}")
+    print(
+        f"[trial] {trial_name} -> lr={cfg.lr} bs={cfg.batch_size} "
+        f"ws={cfg.width_scale} do={cfg.dropout_prob} "
+        f"tp={cfg.task_prefix or '<all>'} seed={seed}"
+    )
     if dry_run:
         return {
             "trial_name": trial_name,
@@ -151,7 +207,10 @@ def _run_trial(
             "seed": int(seed),
             "lr": float(cfg.lr),
             "batch_size": int(cfg.batch_size),
-            "width_scale": float(width_scale),
+            "width_scale": float(cfg.width_scale),
+            "dropout_prob": float(cfg.dropout_prob),
+            "task_prefix": (None if cfg.task_prefix is None else str(cfg.task_prefix)),
+            "no_filter": bool(no_filter),
             "out_dir": str(out_dir),
         }
 
@@ -164,7 +223,10 @@ def _run_trial(
             "seed": int(seed),
             "lr": float(cfg.lr),
             "batch_size": int(cfg.batch_size),
-            "width_scale": float(width_scale),
+            "width_scale": float(cfg.width_scale),
+            "dropout_prob": float(cfg.dropout_prob),
+            "task_prefix": (None if cfg.task_prefix is None else str(cfg.task_prefix)),
+            "no_filter": bool(no_filter),
             "out_dir": str(out_dir),
             "return_code": int(exc.returncode),
         }
@@ -178,7 +240,10 @@ def _run_trial(
         "seed": int(seed),
         "lr": float(cfg.lr),
         "batch_size": int(cfg.batch_size),
-        "width_scale": float(width_scale),
+        "width_scale": float(cfg.width_scale),
+        "dropout_prob": float(cfg.dropout_prob),
+        "task_prefix": (None if cfg.task_prefix is None else str(cfg.task_prefix)),
+        "no_filter": bool(no_filter),
         "out_dir": str(out_dir),
         **scores,
     }
@@ -212,17 +277,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=23)
     parser.add_argument("--lr-options", default="3e-4,1e-3,3e-3")
     parser.add_argument("--batch-size-options", default="16,32,64")
-    parser.add_argument("--encoder-split", default="train")
-    parser.add_argument("--val-encoder-split", default=None)
+    parser.add_argument("--width-scale-options", default="1.0")
+    parser.add_argument("--dropout-options", default="0.5")
     parser.add_argument(
-        "--task-prefix",
-        action="append",
-        default=None,
+        "--task-prefix-options",
+        default="",
         help=(
-            "Pass through task-component prefix filters to train_cost_models. "
-            "Example: BUID_Benign_Ultrasound_0. Repeatable."
+            "Comma-separated task prefixes to sweep (e.g., "
+            "BUID_Benign_Ultrasound_0,BUID_Malignant_Ultrasound_0). "
+            "Empty means no task-prefix sweep."
         ),
     )
+    parser.add_argument("--encoder-split", default="train")
+    parser.add_argument("--val-encoder-split", default=None)
     parser.add_argument(
         "--label",
         action="append",
@@ -236,18 +303,17 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Pass through slicing filter to train_cost_models.",
     )
+    parser.add_argument(
+        "--no-filter",
+        action="store_true",
+        help="Ignore task-prefix/label/slicing filters and use the entire index.",
+    )
     parser.add_argument("--epochs", type=int, default=80)
-    parser.add_argument("--width-scale", type=float, default=1.0)
     parser.add_argument("--dataset-seed", type=int, default=42)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--wandb-mode", choices=["online", "offline", "disabled"], default="disabled")
     parser.add_argument("--wandb-project", default="mvseg-offline-active-learning")
     parser.add_argument("--wandb-entity", default="")
-    parser.add_argument(
-        "--run-name-prefix",
-        default="",
-        help="Optional prefix for per-trial W&B run names.",
-    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -259,18 +325,26 @@ def main() -> None:
     summary_root = out_dir / "summary"
     summary_root.mkdir(parents=True, exist_ok=True)
 
+    task_prefix_options: list[str | None]
+    if bool(args.no_filter):
+        task_prefix_options = [None]
+    else:
+        parsed_prefixes = _parse_str_csv(args.task_prefix_options)
+        task_prefix_options = [None] if not parsed_prefixes else [str(p) for p in parsed_prefixes]
+
     all_configs = _all_trial_configs(
         lr_options=_parse_float_csv(args.lr_options),
         batch_size_options=_parse_int_csv(args.batch_size_options),
+        width_scale_options=_parse_float_csv(args.width_scale_options),
+        dropout_options=_parse_float_csv(args.dropout_options),
+        task_prefix_options=task_prefix_options,
     )
     trials = list(all_configs)
     print(f"[sweep] total_grid={len(all_configs)} running_trials={len(trials)}")
 
     search_rows: list[dict[str, object]] = []
-    prefix = str(args.run_name_prefix).strip()
     for idx, cfg in enumerate(trials):
-        trial_slug = f"trial_{idx:03d}"
-        trial_name = f"{prefix}_{trial_slug}" if prefix else trial_slug
+        trial_name = _trial_name(cfg, idx)
         row = _run_trial(
             trial_name=trial_name,
             cfg=cfg,
@@ -280,12 +354,11 @@ def main() -> None:
             encoder_split=str(args.encoder_split),
             val_encoder_split=None if args.val_encoder_split is None else str(args.val_encoder_split),
             epochs=int(args.epochs),
-            width_scale=float(args.width_scale),
             dataset_seed=int(args.dataset_seed),
             device=str(args.device),
-            task_prefixes=args.task_prefix,
             labels=args.label,
             slicing=args.slicing,
+            no_filter=bool(args.no_filter),
             wandb_mode=str(args.wandb_mode),
             wandb_project=str(args.wandb_project),
             wandb_entity=str(args.wandb_entity),

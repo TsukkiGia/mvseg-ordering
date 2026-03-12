@@ -186,6 +186,7 @@ def _train(
     epochs: int,
     lr: float,
     width_scale: float,
+    dropout_prob: float,
     device: torch.device,
     out_path: Path,
     train_task_ids: list[str],
@@ -216,12 +217,14 @@ def _train(
     val_loader = DataLoader(val_ds, batch_size=int(batch_size), shuffle=False, num_workers=0)
     print(
         f"[{label_name}] train_rows={len(train_rows):,}, val_rows={len(val_rows):,}, "
-        f"batch_size={int(batch_size)}, epochs={int(epochs)}, width_scale={float(width_scale):.3f}"
+        f"batch_size={int(batch_size)}, epochs={int(epochs)}, "
+        f"width_scale={float(width_scale):.3f}, dropout_prob={float(dropout_prob):.3f}"
     )
 
     model = SimpleRegressionCNN_Leaky(
         input_channels=19,
         width_scale=float(width_scale),
+        dropout_prob=float(dropout_prob),
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(lr))
     loss_fn = nn.MSELoss()
@@ -345,6 +348,7 @@ def _train(
         "input_channels": 19,
         "max_context": 9,
         "width_scale": float(width_scale),
+        "dropout_prob": float(dropout_prob),
         "state_dict": model.state_dict(),
         "label_mean": label_mean,
         "label_std": label_std,
@@ -386,6 +390,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=1.0,
         help="Channel-width multiplier for SimpleRegressionCNN_Leaky (default: 1.0).",
+    )
+    parser.add_argument(
+        "--dropout-prob",
+        type=float,
+        default=0.5,
+        help="Dropout probability in SimpleRegressionCNN_Leaky regressor head (default: 0.5).",
     )
     parser.add_argument("--seed", type=int, default=23)
     parser.add_argument("--dataset-seed", type=int, default=42)
@@ -502,6 +512,7 @@ def main() -> None:
             epochs=int(args.epochs),
             lr=float(args.lr),
             width_scale=float(args.width_scale),
+            dropout_prob=float(args.dropout_prob),
             device=device,
             out_path=model_path,
             train_task_ids=train_tasks,
@@ -529,6 +540,7 @@ def main() -> None:
         "n_train_rows": int(len(train_rows)),
         "n_val_rows": int(len(val_rows)),
         "width_scale": float(args.width_scale),
+        "dropout_prob": float(args.dropout_prob),
         "train_data_split": train_data_split,
         "val_data_split": val_data_split,
         "seed": int(args.seed),

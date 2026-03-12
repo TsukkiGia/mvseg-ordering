@@ -5,11 +5,19 @@ import torch.nn as nn
 
 
 class SimpleRegressionCNN_Leaky(nn.Module):
-    def __init__(self, input_channels: int = 19, width_scale: float = 1.0):
+    def __init__(
+        self,
+        input_channels: int = 19,
+        width_scale: float = 1.0,
+        dropout_prob: float = 0.5,
+    ):
         super(SimpleRegressionCNN_Leaky, self).__init__()
         if float(width_scale) <= 0.0:
             raise ValueError("width_scale must be > 0.")
+        if not (0.0 <= float(dropout_prob) <= 1.0):
+            raise ValueError("dropout_prob must be in [0, 1].")
         self.width_scale = float(width_scale)
+        self.dropout_prob = float(dropout_prob)
 
         def _scaled(channels: int) -> int:
             return max(1, int(round(float(channels) * self.width_scale)))
@@ -46,7 +54,7 @@ class SimpleRegressionCNN_Leaky(nn.Module):
             nn.Flatten(),
             nn.Linear(c3, hidden),
             nn.LeakyReLU(negative_slope=0.1, inplace=True),
-            nn.Dropout(0.5),
+            nn.Dropout(self.dropout_prob),
             nn.Linear(hidden, 1),
         )
 
