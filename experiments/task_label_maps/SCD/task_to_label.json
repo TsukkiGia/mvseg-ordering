@@ -1,0 +1,12 @@
+{
+  "SCD/LAF/Post/MRI/2|label=0|slicing=maxslice": "",
+  "SCD/LAF/Post/MRI/2|label=0|slicing=midslice": "",
+  "SCD/LAF/Pre/MRI/2|label=0|slicing=maxslice": "",
+  "SCD/LAF/Pre/MRI/2|label=0|slicing=midslice": "",
+  "SCD/LAS/MRI/2|label=0|slicing=maxslice": "",
+  "SCD/LAS/MRI/2|label=0|slicing=midslice": "",
+  "SCD/VIS/human/MRI/2|label=0|slicing=maxslice": "",
+  "SCD/VIS/human/MRI/2|label=0|slicing=midslice": "",
+  "SCD/VIS/pig/MRI/2|label=0|slicing=maxslice": "",
+  "SCD/VIS/pig/MRI/2|label=0|slicing=midslice": ""
+}

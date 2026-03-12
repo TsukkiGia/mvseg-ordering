@@ -1,0 +1,6 @@
+{
+  "BUID/Benign/Ultrasound/0|label=0|slicing=maxslice": "tumor",
+  "BUID/Benign/Ultrasound/0|label=0|slicing=midslice": "tumor",
+  "BUID/Malignant/Ultrasound/0|label=0|slicing=maxslice": "tumor",
+  "BUID/Malignant/Ultrasound/0|label=0|slicing=midslice": "tumor"
+}
