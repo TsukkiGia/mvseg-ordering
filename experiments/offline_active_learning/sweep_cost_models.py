@@ -84,6 +84,7 @@ def _run_trial(
     encoder_split: str,
     val_encoder_split: str | None,
     epochs: int,
+    width_scale: float,
     dataset_seed: int,
     device: str,
     task_prefixes: Sequence[str] | None,
@@ -112,6 +113,8 @@ def _run_trial(
         str(int(epochs)),
         "--lr",
         str(float(cfg.lr)),
+        "--width-scale",
+        str(float(width_scale)),
         "--seed",
         str(int(seed)),
         "--dataset-seed",
@@ -148,6 +151,7 @@ def _run_trial(
             "seed": int(seed),
             "lr": float(cfg.lr),
             "batch_size": int(cfg.batch_size),
+            "width_scale": float(width_scale),
             "out_dir": str(out_dir),
         }
 
@@ -160,6 +164,7 @@ def _run_trial(
             "seed": int(seed),
             "lr": float(cfg.lr),
             "batch_size": int(cfg.batch_size),
+            "width_scale": float(width_scale),
             "out_dir": str(out_dir),
             "return_code": int(exc.returncode),
         }
@@ -173,6 +178,7 @@ def _run_trial(
         "seed": int(seed),
         "lr": float(cfg.lr),
         "batch_size": int(cfg.batch_size),
+        "width_scale": float(width_scale),
         "out_dir": str(out_dir),
         **scores,
     }
@@ -231,11 +237,17 @@ def parse_args() -> argparse.Namespace:
         help="Pass through slicing filter to train_cost_models.",
     )
     parser.add_argument("--epochs", type=int, default=80)
+    parser.add_argument("--width-scale", type=float, default=1.0)
     parser.add_argument("--dataset-seed", type=int, default=42)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--wandb-mode", choices=["online", "offline", "disabled"], default="disabled")
     parser.add_argument("--wandb-project", default="mvseg-offline-active-learning")
     parser.add_argument("--wandb-entity", default="")
+    parser.add_argument(
+        "--run-name-prefix",
+        default="",
+        help="Optional prefix for per-trial W&B run names.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -255,8 +267,10 @@ def main() -> None:
     print(f"[sweep] total_grid={len(all_configs)} running_trials={len(trials)}")
 
     search_rows: list[dict[str, object]] = []
+    prefix = str(args.run_name_prefix).strip()
     for idx, cfg in enumerate(trials):
-        trial_name = f"trial_{idx:03d}"
+        trial_slug = f"trial_{idx:03d}"
+        trial_name = f"{prefix}_{trial_slug}" if prefix else trial_slug
         row = _run_trial(
             trial_name=trial_name,
             cfg=cfg,
@@ -266,6 +280,7 @@ def main() -> None:
             encoder_split=str(args.encoder_split),
             val_encoder_split=None if args.val_encoder_split is None else str(args.val_encoder_split),
             epochs=int(args.epochs),
+            width_scale=float(args.width_scale),
             dataset_seed=int(args.dataset_seed),
             device=str(args.device),
             task_prefixes=args.task_prefix,
