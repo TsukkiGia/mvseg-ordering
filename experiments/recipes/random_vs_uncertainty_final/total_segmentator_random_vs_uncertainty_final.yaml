@@ -1,0 +1,36 @@
+version: 1
+
+# Random vs uncertainty (final): v2-style Plan B sampling, 5 prompts, commit prediction.
+#
+# Run:
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_vs_uncertainty_final/total_segmentator_random_vs_uncertainty_final.yaml --run
+
+defaults:
+  prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
+  prompt_config_key: click_generator
+  prompt_iterations: 20
+  plan_b_subset_size: 10
+  use_mega_dataset: true
+  mega_dataset_name: TotalSegmentator
+  mega_dataset_split: train
+
+  # Runtime
+  no_visualize: true
+  device: cuda
+  shards: 4
+  experiment_seed: 23
+
+experiments:
+  - name: pretrained_baseline5p_random_vs_uncertainty_final
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/random_vs_uncertainty_final/experiment_total_segmentator/pretrained_baseline5p
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/curriculum.yaml
+      - ordering_config_path: experiments/ordering_configs/reverse_curriculum.yaml
+      - ordering_config_path: experiments/ordering_configs/curriculum_entropy.yaml
+      - ordering_config_path: experiments/ordering_configs/reverse_curriculum_entropy.yaml
