@@ -6,6 +6,7 @@ from .representative import RepresentativeConfig
 from .uncertainty import UncertaintyConfig
 from .uncertainty_start import StartSelectedUncertaintyConfig
 from .learned_cost import LearnedCostOrderingConfig
+from .text_label_start import TextLabelStartThenPolicyConfig
 
 __all__ = [
     "OrderingConfig",
@@ -19,4 +20,5 @@ __all__ = [
     "UncertaintyConfig",
     "StartSelectedUncertaintyConfig",
     "LearnedCostOrderingConfig",
+    "TextLabelStartThenPolicyConfig",
 ]

@@ -90,12 +90,18 @@ def _needs_auto_mega_expansion(merged_config: dict[str, Any]) -> bool:
         return False
     if merged_config.get("mega_target_index") is not None:
         return False
-    if merged_config.get("mega_task") is not None:
+
+    # Match launcher behavior: only a full semantic triple means "single task".
+    # Partial fields (for example mega_slicing=maxslice) are filters and should
+    # still expand across all matching tasks.
+    triple = (
+        merged_config.get("mega_task"),
+        merged_config.get("mega_label"),
+        merged_config.get("mega_slicing"),
+    )
+    if all(v is not None for v in triple):
         return False
-    if merged_config.get("mega_label") is not None:
-        return False
-    if merged_config.get("mega_slicing") is not None:
-        return False
+
     return bool(merged_config.get("mega_dataset_name"))
 
 

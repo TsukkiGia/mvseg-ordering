@@ -1,0 +1,93 @@
+version: 1
+
+# Random vs embedding-MSE (final): v2-style Plan B sampling, 5 prompts, commit prediction.
+#
+# Run:
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_v_MSE_embedding_final/acdc_random_vs_mse_embedding_final.yaml --run
+
+defaults:
+  prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
+  prompt_config_key: click_generator
+  prompt_iterations: 20
+  plan_b_subset_size: 10
+  use_mega_dataset: true
+  mega_dataset_name: ACDC
+  mega_dataset_split: train
+
+  # Runtime
+  no_visualize: false
+  device: cuda
+  shards: 4
+  experiment_seed: 23
+
+experiments:
+  - name: pretrained_baseline5p_random_vs_mse_embedding_min_final
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/random_v_MSE_embedding_final/experiment_acdc/pretrained_baseline5p_mse_embedding_min
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_min_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_min_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_min_medsam.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_min_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_min_vit.yaml
+  - name: pretrained_baseline5p_random_vs_mse_embedding_max_final
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/random_v_MSE_embedding_final/experiment_acdc/pretrained_baseline5p_mse_embedding_max
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_max_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_max_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_max_medsam.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_max_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_max_vit.yaml
+  - name: pretrained_baseline5p_random_vs_mse_embedding_alternate_start_min_final
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/random_v_MSE_embedding_final/experiment_acdc/pretrained_baseline5p_mse_embedding_alternate_start_min
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_min_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_min_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_min_medsam.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_min_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_min_vit.yaml
+  - name: pretrained_baseline5p_random_vs_mse_embedding_alternate_start_max_final
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/random_v_MSE_embedding_final/experiment_acdc/pretrained_baseline5p_mse_embedding_alternate_start_max
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_max_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_max_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_max_medsam.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_max_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_alternate_start_max_vit.yaml
+  - name: pretrained_baseline5p_random_vs_mse_embedding_context_mean_final
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/random_v_MSE_embedding_final/experiment_acdc/pretrained_baseline5p_mse_embedding_context_mean
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_context_mean_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_context_mean_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_context_mean_medsam.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_context_mean_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/mse_embedding/mse_embedding_context_mean_vit.yaml

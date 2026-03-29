@@ -44,6 +44,18 @@ def _parse_str_csv(value: str) -> list[str]:
     return [p.strip() for p in str(value).split(",") if p.strip()]
 
 
+def _compute_shard_indices(total: int, shard_id: int | None, shard_count: int | None) -> list[int]:
+    if shard_id is None or shard_count is None or int(shard_count) <= 1:
+        return list(range(int(total)))
+    if int(shard_id) < 0 or int(shard_id) >= int(shard_count):
+        raise ValueError("shard_id must be in [0, shard_count).")
+    # Ceil partitioning to keep shards balanced.
+    shard_size = (int(total) + int(shard_count) - 1) // int(shard_count)
+    start = int(shard_id) * shard_size
+    end = min((int(shard_id) + 1) * shard_size, int(total))
+    return list(range(start, end))
+
+
 def _all_trial_configs(
     *,
     lr_options: Sequence[float],
@@ -275,6 +287,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-index-path", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=23)
+    parser.add_argument("--shard-id", type=int, default=None, help="Shard index in [0, shard-count).")
+    parser.add_argument("--shard-count", type=int, default=None, help="Total number of sweep shards.")
     parser.add_argument("--lr-options", default="3e-4,1e-3,3e-3")
     parser.add_argument("--batch-size-options", default="16,32,64")
     parser.add_argument("--width-scale-options", default="1.0")
@@ -339,12 +353,27 @@ def main() -> None:
         dropout_options=_parse_float_csv(args.dropout_options),
         task_prefix_options=task_prefix_options,
     )
-    trials = list(all_configs)
-    print(f"[sweep] total_grid={len(all_configs)} running_trials={len(trials)}")
+    shard_indices = _compute_shard_indices(
+        total=len(all_configs),
+        shard_id=args.shard_id,
+        shard_count=args.shard_count,
+    )
+    trials = [(idx, all_configs[idx]) for idx in shard_indices]
+    if args.shard_id is not None and args.shard_count is not None:
+        shard_desc = (
+            f"id={int(args.shard_id)} "
+            f"(position={int(args.shard_id) + 1}/{int(args.shard_count)})"
+        )
+    else:
+        shard_desc = "full"
+    print(
+        f"[sweep] total_grid={len(all_configs)} shard={shard_desc} "
+        f"running_trials={len(trials)}"
+    )
 
     search_rows: list[dict[str, object]] = []
-    for idx, cfg in enumerate(trials):
-        trial_name = _trial_name(cfg, idx)
+    for idx, cfg in trials:
+        trial_name = _trial_name(cfg, int(idx))
         row = _run_trial(
             trial_name=trial_name,
             cfg=cfg,
@@ -367,7 +396,10 @@ def main() -> None:
         )
         search_rows.append(row)
 
-    search_csv = summary_root / "search_results.csv"
+    if args.shard_id is not None and args.shard_count is not None and int(args.shard_count) > 1:
+        search_csv = summary_root / f"search_results_shard_{int(args.shard_id):03d}_of_{int(args.shard_count):03d}.csv"
+    else:
+        search_csv = summary_root / "search_results.csv"
     _write_csv(_sort_by_objective(_successful_rows(search_rows)) + [r for r in search_rows if r.get("status") != "success"], search_csv)
     print(f"[sweep] wrote {search_csv}")
 

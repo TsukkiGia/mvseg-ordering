@@ -44,8 +44,14 @@ class LearnedCostOrderingConfig(AdaptiveOrderingConfig):
             # Keep behavior aligned with training checkpoint layout.
             self.max_context = ckpt_max_context
         input_channels = int(payload.get("input_channels", 2 * self.max_context + 1))
+        width_scale = float(payload.get("width_scale", 1.0))
+        dropout_prob = float(payload.get("dropout_prob", 0.5))
 
-        self.cost_model = SimpleRegressionCNN_Leaky(input_channels=input_channels)
+        self.cost_model = SimpleRegressionCNN_Leaky(
+            input_channels=input_channels,
+            width_scale=width_scale,
+            dropout_prob=dropout_prob,
+        )
         self.cost_model.load_state_dict(payload["state_dict"])
         self.cost_model.eval()
         self.set_device(self.device)
@@ -147,4 +153,3 @@ class LearnedCostOrderingConfig(AdaptiveOrderingConfig):
         if return_details:
             return int(selected_idx), scored
         return int(selected_idx)
-

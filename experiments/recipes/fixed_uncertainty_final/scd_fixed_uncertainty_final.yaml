@@ -1,0 +1,83 @@
+version: 1
+
+# Fixed uncertainty (final): v2-style Plan B sampling, 5 prompts, commit prediction.
+#
+# Run:
+#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/fixed_uncertainty_final/scd_fixed_uncertainty_final.yaml --run
+
+defaults:
+  prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml
+  prompt_config_key: click_generator
+  prompt_iterations: 20
+  plan_b_subset_size: 10
+  use_mega_dataset: true
+  mega_dataset_name: SCD
+  mega_dataset_split: train
+
+  # Runtime
+  no_visualize: true
+  device: cuda
+  shards: 4
+  experiment_seed: 23
+
+experiments:
+  - name: pretrained_baseline5p_fixed_curriculum_final
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/fixed_uncertainty_final/experiment_scd/curriculum_pretrained_baseline5p
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/curriculum.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_start_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_start_vit.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_start_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_start_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_start_medsam.yaml
+  - name: pretrained_baseline5p_fixed_curriculum_entropy_final
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/fixed_uncertainty_final/experiment_scd/curriculum_entropy_pretrained_baseline5p
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/curriculum_entropy.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_entropy_start_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_entropy_start_vit.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_entropy_start_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_entropy_start_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/curriculum_entropy_start_medsam.yaml
+  - name: pretrained_baseline5p_fixed_reverse_curriculum_final
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/fixed_uncertainty_final/experiment_scd/reverse_curriculum_pretrained_baseline5p
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/reverse_curriculum.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_start_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_start_vit.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_start_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_start_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_start_medsam.yaml
+  - name: pretrained_baseline5p_fixed_reverse_curriculum_entropy_final
+    pretrained_model_score_goal: true
+    commit_ground_truth: false
+    prompt_iterations: 5
+    script_dir: experiments/scripts/fixed_uncertainty_final/experiment_scd/reverse_curriculum_entropy_pretrained_baseline5p
+    plan_b_num_subsets: 10
+    plan: [B]
+    policies:
+      - ordering_config_path: experiments/ordering_configs/random_default.yaml
+      - ordering_config_path: experiments/ordering_configs/reverse_curriculum_entropy.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_entropy_start_multiverseg.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_entropy_start_vit.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_entropy_start_clip.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_entropy_start_dinov2.yaml
+      - ordering_config_path: experiments/ordering_configs/uncertainty_start/reverse_curriculum_entropy_start_medsam.yaml

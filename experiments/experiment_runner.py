@@ -33,6 +33,7 @@ from .ordering import (
     RandomConfig,
     RepresentativeConfig,
     StartSelectedUncertaintyConfig,
+    TextLabelStartThenPolicyConfig,
     UncertaintyConfig,
     compute_shard_indices,
 )
@@ -337,6 +338,55 @@ def load_ordering_config(
             shard_count=shard_count,
             name=name,
             device=device,
+        )
+    if cfg_type == "text_label_start":
+        task_text = cfg.get("task_text")
+        if not task_text:
+            raise ValueError("task_text is required for text_label_start configs.")
+
+        clip_encoder_cfg_path = cfg.get("clip_encoder_config_path") or cfg.get("encoder_config_path")
+        if not clip_encoder_cfg_path:
+            raise ValueError(
+                "clip_encoder_config_path is required for text_label_start configs."
+            )
+        clip_encoder_cfg_path = Path(clip_encoder_cfg_path)
+        if not clip_encoder_cfg_path.is_absolute() and config_path is not None:
+            clip_encoder_cfg_path = (config_path.parent / clip_encoder_cfg_path).resolve()
+        with open(clip_encoder_cfg_path, "r", encoding="utf-8") as fh:
+            clip_encoder_cfg = yaml.safe_load(fh) or {}
+
+        base_ordering_config_path = cfg.get("base_ordering_config_path")
+        if not base_ordering_config_path:
+            raise ValueError(
+                "base_ordering_config_path is required for text_label_start configs."
+            )
+        base_ordering_config_path = Path(base_ordering_config_path)
+        if not base_ordering_config_path.is_absolute() and config_path is not None:
+            base_ordering_config_path = (config_path.parent / base_ordering_config_path).resolve()
+        base_ordering_config_path = base_ordering_config_path.resolve()
+
+        if config_path is not None and base_ordering_config_path == config_path.resolve():
+            raise ValueError("base_ordering_config_path cannot point to the same file.")
+
+        base_policy = load_ordering_config(
+            config_path=base_ordering_config_path,
+            seed=seed,
+            device=device,
+            shard_id=shard_id,
+            shard_count=shard_count,
+        )
+        if isinstance(base_policy, AdaptiveOrderingConfig):
+            raise ValueError(
+                "text_label_start currently supports non-adaptive base policies only."
+            )
+
+        return TextLabelStartThenPolicyConfig(
+            seed=seed,
+            task_text=str(task_text),
+            clip_encoder_cfg=clip_encoder_cfg,
+            base_policy=base_policy,
+            device=device,
+            name=name,
         )
 
     raise ValueError(f"Unknown ordering config type: {cfg_type}")
