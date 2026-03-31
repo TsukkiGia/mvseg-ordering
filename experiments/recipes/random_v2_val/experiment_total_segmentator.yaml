@@ -1,7 +1,7 @@
 version: 1
 
 # Run:
-#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_v2_val/experiment_total_segmentator.yaml --run
+#   /data/ddmg/users/gtorpey/envs/mvseg-ordering-env/bin/python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_v2_val/experiment_total_segmentator.yaml --run
 
 # Defaults applied to all experiments unless overridden per-entry.
 defaults:

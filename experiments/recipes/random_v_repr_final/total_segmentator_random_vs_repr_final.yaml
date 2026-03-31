@@ -3,7 +3,7 @@ version: 1
 # Random vs representative (final): v2-style Plan B sampling, 5 prompts, commit prediction.
 #
 # Run:
-#   python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_v_repr_final/total_segmentator_random_vs_repr_final.yaml --run
+#   /data/ddmg/users/gtorpey/envs/mvseg-ordering-env/bin/python -m experiments.tools.exp_yaml_launcher --config experiments/recipes/random_v_repr_final/total_segmentator_random_vs_repr_final.yaml --run
 
 defaults:
   prompt_config_path: experiments/prompt_generator_configs/click_prompt_generator.yml

@@ -8,6 +8,7 @@ FAMILY_ROOTS: Dict[str, str] = {
     "experiment_acdc": "ACDC",
     "experiment_btcv": "BTCV",
     "experiment_buid": "BUID",
+    "experiment_drive": "DRIVE",
     "experiment_hipxray": "HipXRay",
     "experiment_pandental": "PanDental",
     "experiment_scd": "SCD",
