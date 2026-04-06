@@ -8,6 +8,8 @@ import json
 import re
 from pathlib import Path
 
+from experiments.dataset.task_id_parser import decode_task_component
+
 
 TASK_DIR_PATTERN = re.compile(
     r"^(?P<task_component>.+)_label(?P<label>\d+)_(?P<slicing>midslice|maxslice)(?:_idx\d+)?$"
@@ -31,8 +33,8 @@ def _discover_task_keys(scripts_root: Path) -> dict[str, set[str]]:
         task_component = str(match.group("task_component"))
         label = int(match.group("label"))
         slicing = str(match.group("slicing"))
-        family = task_component.split("_", 1)[0]
-        mega_task = task_component.replace("_", "/")
+        mega_task = decode_task_component(task_component)
+        family = mega_task.split("/", 1)[0]
         task_key = f"{mega_task}|label={label}|slicing={slicing}"
         task_keys_by_dataset.setdefault(family, set()).add(task_key)
 

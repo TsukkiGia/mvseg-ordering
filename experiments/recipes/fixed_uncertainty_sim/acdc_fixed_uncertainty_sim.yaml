@@ -1,0 +1,38 @@
+version: 1
+
+# Fixed-uncertainty start-nomination simulation — ACDC
+#
+# Run:
+#   python -m experiments.tools.start_nomination_launcher \
+#       --config experiments/recipes/fixed_uncertainty_sim/acdc_fixed_uncertainty_sim.yaml --run
+
+defaults:
+  selectors:
+    - closest_centroid
+    - medoid
+
+  encoders:
+    - experiments/encoder_configs/clip_default.yaml
+    - experiments/encoder_configs/vit_default.yaml
+    - experiments/encoder_configs/dinov2_default.yaml
+    - experiments/encoder_configs/medsam_default.yaml
+    - experiments/encoder_configs/multiverseg_default.yaml
+
+  procedure: fixed_uncertainty_final
+  dataset: ACDC
+  random_policy: random
+  data_split: train
+  dataset_seed: 42
+  device: cuda
+
+simulations:
+  - name: acdc_curriculum
+    ablation: curriculum_pretrained_baseline5p
+    policies:
+      - curriculum
+    out_dir: figures/start_nomination_simulation/fixed_uncertainty_final/acdc/curriculum
+  - name: acdc_reverse_curriculum
+    ablation: reverse_curriculum_pretrained_baseline5p
+    policies:
+      - reverse_curriculum
+    out_dir: figures/start_nomination_simulation/fixed_uncertainty_final/acdc/reverse_curriculum
