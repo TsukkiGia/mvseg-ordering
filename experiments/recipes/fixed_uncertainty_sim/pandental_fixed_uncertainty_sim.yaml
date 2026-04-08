@@ -11,13 +11,16 @@ defaults:
     - medoid
     - farthest_centroid
     - max_mean_distance
+    - minimax_center
 
   encoders:
     - experiments/encoder_configs/clip_default.yaml
     - experiments/encoder_configs/vit_default.yaml
     - experiments/encoder_configs/dinov2_default.yaml
     - experiments/encoder_configs/medsam_default.yaml
+    - experiments/encoder_configs/medsam_spatial_mean.yaml
     - experiments/encoder_configs/multiverseg_default.yaml
+    - experiments/encoder_configs/multiverseg_spatial_mean.yaml
 
   procedure: random_vs_uncertainty_final
   ablation: pretrained_baseline5p

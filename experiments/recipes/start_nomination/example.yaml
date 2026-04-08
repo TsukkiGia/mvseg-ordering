@@ -1,0 +1,56 @@
+version: 1
+
+# Start-nomination simulation recipe.
+# Run:
+#   python -m experiments.tools.start_nomination_launcher --config experiments/recipes/start_nomination/example.yaml
+#   python -m experiments.tools.start_nomination_launcher --config experiments/recipes/start_nomination/example.yaml --run
+
+defaults:
+  # Start selectors to evaluate.
+  # Available: closest_centroid, medoid, farthest_centroid, max_mean_distance, minimax_center
+  selectors:
+    - closest_centroid
+    - medoid
+    - farthest_centroid
+    - max_mean_distance
+    - minimax_center
+
+  # Encoders — one simulation run is produced per encoder.
+  # Results land in {out_dir}/{encoder_type}/ and are merged into
+  # {out_dir}/start_nomination_combined.csv with an `encoder` column.
+  encoders:
+    - experiments/encoder_configs/clip_default.yaml
+    - experiments/encoder_configs/vit_default.yaml
+    - experiments/encoder_configs/dinov2_default.yaml
+    - experiments/encoder_configs/medsam_default.yaml
+    - experiments/encoder_configs/medsam_spatial_mean.yaml
+    - experiments/encoder_configs/multiverseg_default.yaml
+    - experiments/encoder_configs/multiverseg_spatial_mean.yaml
+
+  # Runtime
+  data_split: train
+  dataset_seed: 42
+  device: cuda
+
+simulations:
+  - name: acdc_fixed_uncertainty
+    # procedure: top-level folder under experiments/scripts/
+    procedure: fixed_uncertainty_final
+    # ablation: subdirectory within each task folder
+    ablation: pretrained_baseline5p
+    # dataset: family name to restrict to (ACDC, BTCV, BUID, …); omit for all datasets
+    dataset: ACDC
+    # mega_slicing: midslice or maxslice; omit for both
+    # mega_slicing: midslice
+
+    # Uncertainty policy names as they appear in the Plan B CSVs.
+    policies:
+      - curriculum
+      - reverse_curriculum
+
+    # Random baseline. Defaults to the same procedure/ablation as above.
+    random_policy: random
+    # random_procedure: random_v2
+    # random_ablation: pretrained_baseline5p
+
+    out_dir: figures/start_nomination_simulation/acdc_fixed_uncertainty
