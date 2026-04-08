@@ -1,10 +1,9 @@
 version: 1
 
-# Fixed-uncertainty start-nomination simulation — ACDC
+# Fixed-uncertainty start-nomination simulation — SCD
 #
 # Run:
-#   python -m experiments.tools.start_nomination_launcher \
-#       --config experiments/recipes/fixed_uncertainty_sim/acdc_fixed_uncertainty_sim.yaml --run
+#   python -m experiments.tools.start_nomination_launcher --config experiments/recipes/fixed_uncertainty_sim/scd_fixed_uncertainty_sim.yaml --run
 
 defaults:
   selectors:
@@ -22,18 +21,18 @@ defaults:
 
   procedure: random_vs_uncertainty_final
   ablation: pretrained_baseline5p
-  dataset: ACDC
+  dataset: SCD
   random_policy: random
   data_split: train
   dataset_seed: 42
-  device: cpu
+  device: cuda
 
 simulations:
-  - name: acdc_curriculum
+  - name: scd_curriculum
     policies:
       - curriculum
-    out_dir: experiments/scripts/fixed_uncertainty_sim_final/acdc/curriculum
-  - name: acdc_reverse_curriculum
+    out_dir: experiments/scripts/fixed_uncertainty_sim_final/scd/curriculum
+  - name: scd_reverse_curriculum
     policies:
       - reverse_curriculum
-    out_dir: experiments/scripts/fixed_uncertainty_sim_final/acdc/reverse_curriculum
+    out_dir: experiments/scripts/fixed_uncertainty_sim_final/scd/reverse_curriculum
