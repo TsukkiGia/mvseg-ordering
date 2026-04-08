@@ -56,6 +56,13 @@ def closest_centroid(image_ids: np.ndarray, embeddings: np.ndarray) -> int:
     return _arg_pick_with_tie_break(dists, ids, maximize=False)
 
 
+def farthest_centroid(image_ids: np.ndarray, embeddings: np.ndarray) -> int:
+    ids, emb = _validate_inputs(image_ids, embeddings)
+    centroid = emb.mean(axis=0, keepdims=True)
+    dists = np.linalg.norm(emb - centroid, axis=1)
+    return _arg_pick_with_tie_break(dists, ids, maximize=True)
+
+
 def medoid(image_ids: np.ndarray, embeddings: np.ndarray) -> int:
     ids, emb = _validate_inputs(image_ids, embeddings)
     pairwise = np.linalg.norm(emb[:, None, :] - emb[None, :, :], axis=2)
@@ -63,10 +70,19 @@ def medoid(image_ids: np.ndarray, embeddings: np.ndarray) -> int:
     return _arg_pick_with_tie_break(mean_dist, ids, maximize=False)
 
 
+def max_mean_distance(image_ids: np.ndarray, embeddings: np.ndarray) -> int:
+    ids, emb = _validate_inputs(image_ids, embeddings)
+    pairwise = np.linalg.norm(emb[:, None, :] - emb[None, :, :], axis=2)
+    mean_dist = pairwise.mean(axis=1)
+    return _arg_pick_with_tie_break(mean_dist, ids, maximize=True)
+
+
 
 SELECTOR_REGISTRY: dict[str, SelectorFn] = {
     "closest_centroid": closest_centroid,
+    "farthest_centroid": farthest_centroid,
     "medoid": medoid,
+    "max_mean_distance": max_mean_distance,
 }
 
 

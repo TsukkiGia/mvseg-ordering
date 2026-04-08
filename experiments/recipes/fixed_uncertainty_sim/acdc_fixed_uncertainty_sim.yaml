@@ -3,8 +3,7 @@ version: 1
 # Fixed-uncertainty start-nomination simulation — ACDC
 #
 # Run:
-#   python -m experiments.tools.start_nomination_launcher \
-#       --config experiments/recipes/fixed_uncertainty_sim/acdc_fixed_uncertainty_sim.yaml --run
+#   python -m experiments.tools.start_nomination_launcher --config experiments/recipes/fixed_uncertainty_sim/acdc_fixed_uncertainty_sim.yaml --run
 
 defaults:
   selectors:
