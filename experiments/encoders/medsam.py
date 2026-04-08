@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
 
 from .base import BaseEncoder
 from .encoder_util import convert_to_rgb_tensor
@@ -16,6 +17,7 @@ class MedSAMEncoder(BaseEncoder):
     model_type: str = "vit_b"
     checkpoint_path = "/data/ddmg/mvseg-ordering/weights/medsam_vit_b.pth"
     pooling: str = "gap_gmp"
+    spatial_grid: Optional[int] = 16
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -64,6 +66,18 @@ class MedSAMEncoder(BaseEncoder):
             gap = feats.mean(dim=(2, 3))
             gmp = feats.amax(dim=(2, 3))
             emb = torch.cat([gap, gmp], dim=-1)
+        elif mode == "spatial_mean":
+            spatial = feats.mean(dim=1, keepdim=True)
+            if self.spatial_grid is not None and int(self.spatial_grid) > 0:
+                grid = int(self.spatial_grid)
+                spatial = F.adaptive_avg_pool2d(spatial, output_size=(grid, grid))
+            emb = spatial.flatten(start_dim=1)
+        elif mode == "spatial_max":
+            spatial = feats.amax(dim=1, keepdim=True)
+            if self.spatial_grid is not None and int(self.spatial_grid) > 0:
+                grid = int(self.spatial_grid)
+                spatial = F.adaptive_avg_pool2d(spatial, output_size=(grid, grid))
+            emb = spatial.flatten(start_dim=1)
         else:
             raise ValueError(f"Unsupported pooling mode: {self.pooling}")
 

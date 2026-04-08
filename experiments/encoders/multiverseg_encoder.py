@@ -8,6 +8,7 @@ import sys
 import einops
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 # Ensure local deps are on sys.path for notebook/script usage without prior setup.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -50,7 +51,8 @@ def zero_interaction_target5(image: torch.Tensor) -> torch.Tensor:
 @dataclass(eq=False, repr=False)
 class MultiverSegEncoder(BaseEncoder):
     """Encoder replica of MultiverSegNet (no decoder or output head)."""
-    pooling: str = "gap_gmp"  # one of: gap, gmp, gap_gmp
+    pooling: str = "gap_gmp"  # one of: gap, gmp, gap_gmp, spatial_mean, spatial_max
+    spatial_grid: Optional[int] = 16
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -105,6 +107,18 @@ class MultiverSegEncoder(BaseEncoder):
             gap = feat.mean(dim=(2, 3))
             gmp = feat.amax(dim=(2, 3))
             emb = torch.cat([gap, gmp], dim=-1)
+        elif mode == "spatial_mean":
+            spatial = feat.mean(dim=1, keepdim=True)
+            if self.spatial_grid is not None and int(self.spatial_grid) > 0:
+                grid = int(self.spatial_grid)
+                spatial = F.adaptive_avg_pool2d(spatial, output_size=(grid, grid))
+            emb = spatial.flatten(start_dim=1)
+        elif mode == "spatial_max":
+            spatial = feat.amax(dim=1, keepdim=True)
+            if self.spatial_grid is not None and int(self.spatial_grid) > 0:
+                grid = int(self.spatial_grid)
+                spatial = F.adaptive_avg_pool2d(spatial, output_size=(grid, grid))
+            emb = spatial.flatten(start_dim=1)
         else:
             raise ValueError(f"Unsupported pooling mode: {self.pooling}")
         # L2 normalize for downstream clustering stability

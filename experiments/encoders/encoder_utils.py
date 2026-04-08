@@ -19,7 +19,10 @@ def build_encoder_from_cfg(
     enc_type = str(encoder_cfg.get("type", "multiverseg")).lower()
     if enc_type == "multiverseg":
         pooling = encoder_cfg.get("pooling", "gap_gmp")
-        encoder = MultiverSegEncoder(pooling=pooling)
+        encoder = MultiverSegEncoder(
+            pooling=pooling,
+            spatial_grid=encoder_cfg.get("spatial_grid", 16),
+        )
     elif enc_type == "clip":
         encoder = CLIPEncoder(
             model_name=encoder_cfg.get("model_name", "ViT-B-32"),
@@ -39,6 +42,7 @@ def build_encoder_from_cfg(
         encoder = MedSAMEncoder(
             model_type=encoder_cfg.get("model_type", "vit_b"),
             pooling=encoder_cfg.get("pooling", "gap_gmp"),
+            spatial_grid=encoder_cfg.get("spatial_grid", 16),
         )
     else:
         raise ValueError(f"Unknown encoder type: {enc_type}")

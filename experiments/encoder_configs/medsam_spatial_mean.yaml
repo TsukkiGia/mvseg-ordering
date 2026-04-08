@@ -1,0 +1,6 @@
+type: medsam
+model_type: vit_b
+# Pool across channels per pixel to preserve coarse spatial structure.
+pooling: spatial_mean
+# Adaptive grid size before flattening (set null to keep native feature-map size).
+spatial_grid: 16
