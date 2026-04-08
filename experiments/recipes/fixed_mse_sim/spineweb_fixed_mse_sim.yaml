@@ -1,0 +1,40 @@
+version: 1
+
+# Fixed-MSE start-nomination simulation — SpineWeb
+#
+# Run:
+#   python -m experiments.tools.start_nomination_launcher --config experiments/recipes/fixed_mse_sim/spineweb_fixed_mse_sim.yaml --run
+
+defaults:
+  selectors:
+    - closest_centroid
+    - medoid
+    - farthest_centroid
+    - max_mean_distance
+    - minimax_center
+
+  encoders:
+    - experiments/encoder_configs/clip_default.yaml
+    - experiments/encoder_configs/vit_default.yaml
+    - experiments/encoder_configs/dinov2_default.yaml
+    - experiments/encoder_configs/medsam_default.yaml
+    - experiments/encoder_configs/medsam_spatial_mean.yaml
+    - experiments/encoder_configs/multiverseg_default.yaml
+    - experiments/encoder_configs/multiverseg_spatial_mean.yaml
+
+  procedure: random_v_MSE_final
+  ablation: pretrained_baseline5p
+  dataset: SpineWeb
+  random_policy: random
+  data_split: train
+  dataset_seed: 42
+  device: cpu
+
+simulations:
+  - name: spineweb_mse
+    policies:
+      - mse_min
+      - mse_max
+      - mse_alternate_start_min
+      - mse_alternate_start_max
+    out_dir: experiments/scripts/fixed_mse_sim_final/spineweb/mse

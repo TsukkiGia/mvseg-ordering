@@ -1,0 +1,81 @@
+version: 1
+
+# Fixed-MSE-embedding start-nomination simulation — ACDC
+#
+# Run:
+#   python -m experiments.tools.start_nomination_launcher --config experiments/recipes/fixed_mse_embedding_sim/acdc_fixed_mse_embedding_sim.yaml --run
+
+defaults:
+  selectors:
+    - closest_centroid
+    - medoid
+    - farthest_centroid
+    - max_mean_distance
+    - minimax_center
+
+  encoders:
+    - experiments/encoder_configs/clip_default.yaml
+    - experiments/encoder_configs/vit_default.yaml
+    - experiments/encoder_configs/dinov2_default.yaml
+    - experiments/encoder_configs/medsam_default.yaml
+    - experiments/encoder_configs/medsam_spatial_mean.yaml
+    - experiments/encoder_configs/multiverseg_default.yaml
+    - experiments/encoder_configs/multiverseg_spatial_mean.yaml
+
+  procedure: random_v_MSE_embedding_final
+  dataset: ACDC
+  random_policy: random
+  data_split: train
+  dataset_seed: 42
+  device: cpu
+
+simulations:
+  - name: acdc_mse_embedding_min
+    ablation: pretrained_baseline5p_mse_embedding_min
+    policies:
+      - mse_embedding_min_clip
+      - mse_embedding_min_dinov2
+      - mse_embedding_min_medsam
+      - mse_embedding_min_multiverseg
+      - mse_embedding_min_vit
+    out_dir: experiments/scripts/fixed_mse_embedding_sim_final/acdc/mse_embedding_min
+
+  - name: acdc_mse_embedding_max
+    ablation: pretrained_baseline5p_mse_embedding_max
+    policies:
+      - mse_embedding_max_clip
+      - mse_embedding_max_dinov2
+      - mse_embedding_max_medsam
+      - mse_embedding_max_multiverseg
+      - mse_embedding_max_vit
+    out_dir: experiments/scripts/fixed_mse_embedding_sim_final/acdc/mse_embedding_max
+
+  - name: acdc_mse_embedding_alternate_start_min
+    ablation: pretrained_baseline5p_mse_embedding_alternate_start_min
+    policies:
+      - mse_embedding_alternate_start_min_clip
+      - mse_embedding_alternate_start_min_dinov2
+      - mse_embedding_alternate_start_min_medsam
+      - mse_embedding_alternate_start_min_multiverseg
+      - mse_embedding_alternate_start_min_vit
+    out_dir: experiments/scripts/fixed_mse_embedding_sim_final/acdc/mse_embedding_alternate_start_min
+
+  - name: acdc_mse_embedding_alternate_start_max
+    ablation: pretrained_baseline5p_mse_embedding_alternate_start_max
+    policies:
+      - mse_embedding_alternate_start_max_clip
+      - mse_embedding_alternate_start_max_dinov2
+      - mse_embedding_alternate_start_max_medsam
+      - mse_embedding_alternate_start_max_multiverseg
+      - mse_embedding_alternate_start_max_vit
+    out_dir: experiments/scripts/fixed_mse_embedding_sim_final/acdc/mse_embedding_alternate_start_max
+
+  - name: acdc_mse_embedding_context_mean
+    ablation: pretrained_baseline5p_mse_embedding_context_mean
+    policies:
+      - mse_embedding_context_mean_clip
+      - mse_embedding_context_mean_dinov2
+      - mse_embedding_context_mean_medsam
+      - mse_embedding_context_mean_multiverseg
+      - mse_embedding_context_mean_vit
+    out_dir: experiments/scripts/fixed_mse_embedding_sim_final/acdc/mse_embedding_context_mean
